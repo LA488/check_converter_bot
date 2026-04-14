@@ -316,22 +316,32 @@ def telegram_webhook():
     return "OK", 200
 
 async def on_startup():
-    """Set webhook and bot menu when the bot starts."""
-    try:
-        # Set command menu
-        commands = [
-            types.BotCommand(command="start", description="🏠 Главное меню / Начать поиск"),
-            types.BotCommand(command="help", description="❓ Как пользоваться"),
-            types.BotCommand(command="cancel", description="❌ Отменить поиск")
-        ]
-        await bot.set_my_commands(commands)
-        
-        print(f"Setting webhook to: {WEBHOOK_URL}")
-        await asyncio.sleep(1)
-        await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True)
-        print("Webhook and Menu set successfully!")
-    except Exception as e:
-        print(f"FAILED on startup: {e}")
+    """Set webhook and bot menu with retries to handle proxy instability."""
+    max_retries = 5
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"Attempt {attempt}/{max_retries}: Setting up bot menu and webhook...")
+            # Set command menu
+            commands = [
+                types.BotCommand(command="start", description="🏠 Главное меню / Начать поиск"),
+                types.BotCommand(command="help", description="❓ Как пользоваться"),
+                types.BotCommand(command="cancel", description="❌ Отменить поиск")
+            ]
+            await bot.set_my_commands(commands)
+            
+            print(f"Setting webhook to: {WEBHOOK_URL}")
+            await asyncio.sleep(2) # Increased delay for stability
+            await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True)
+            print("✅ Webhook and Menu set successfully!")
+            return # Success! Exit the function
+        except Exception as e:
+            print(f"⚠️ Attempt {attempt} failed: {e}")
+            if attempt < max_retries:
+                wait_time = attempt * 5 # Exponential backoff
+                print(f"Waiting {wait_time} seconds before next attempt...")
+                await asyncio.sleep(wait_time)
+            else:
+                print("❌ All attempts failed. Please try again in 10-15 minutes.")
 
 async def on_shutdown():
     """Remove webhook when the bot stops."""
