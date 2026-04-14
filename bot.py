@@ -143,7 +143,12 @@ def get_main_keyboard():
         [KeyboardButton(text="📂 По категории"), KeyboardButton(text="🔹 По подкатегории")],
         [KeyboardButton(text="❌ Отмена")]
     ]
-    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
+    return ReplyKeyboardMarkup(
+        keyboard=buttons, 
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Выберите режим поиска..."
+    )
 
 def get_cancel_keyboard():
     buttons = [[KeyboardButton(text="❌ Отмена")]]
@@ -311,16 +316,22 @@ def telegram_webhook():
     return "OK", 200
 
 async def on_startup():
-    """Set webhook when the bot starts."""
+    """Set webhook and bot menu when the bot starts."""
     try:
+        # Set command menu
+        commands = [
+            types.BotCommand(command="start", description="🏠 Главное меню / Начать поиск"),
+            types.BotCommand(command="help", description="❓ Как пользоваться"),
+            types.BotCommand(command="cancel", description="❌ Отменить поиск")
+        ]
+        await bot.set_my_commands(commands)
+        
         print(f"Setting webhook to: {WEBHOOK_URL}")
-        # Add a small delay for network stability on PA
         await asyncio.sleep(1)
         await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True)
-        print("Webhook set successfully!")
+        print("Webhook and Menu set successfully!")
     except Exception as e:
-        print(f"FAILED to set webhook: {e}")
-        print("Wait a moment and try running 'python bot.py' again.")
+        print(f"FAILED on startup: {e}")
 
 async def on_shutdown():
     """Remove webhook when the bot stops."""
