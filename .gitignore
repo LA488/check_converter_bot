@@ -1,0 +1,24 @@
+# Secrets and keys
+.env
+credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+check_image.png
+out.txt
+out2.txt
+models.txt
+smoke_test.py
+test_extractor.py
