@@ -30,18 +30,16 @@ GOOGLE_SHEET_URL = os.getenv("GOOGLE_SHEET_URL")
 GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")
 PA_USERNAME = os.getenv("PYTHONANYWHERE_USERNAME")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
+PROXY_URL = "proxy.server:3128"
 
 # Construct Webhook URL
 WEBHOOK_URL = f"https://{PA_USERNAME}.pythonanywhere.com/{WEBHOOK_SECRET}"
 
-# --- Proxy configuration for PythonAnywhere Free Tier ---
-session = None
-if os.environ.get('PYTHONANYWHERE_DOMAIN'):
-    proxy_url = "http://proxy.server:3128"
-    os.environ['HTTP_PROXY'] = proxy_url
-    os.environ['HTTPS_PROXY'] = proxy_url
-    session = AiohttpSession(proxy=proxy_url)
-    print("Proxy configured for PythonAnywhere Free Tier.")
+# Bot and Dispatcher setup
+# We will initialize them without a global session to avoid loop conflicts on PythonAnywhere
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
+dp = Dispatcher(storage=MemoryStorage())
+app = Flask(__name__)
 
 # Initialize Gemini Client
 # The SDK automatically uses HTTP_PROXY/HTTPS_PROXY environment variables
@@ -49,11 +47,6 @@ gemini_client = genai.Client(api_key=GOOGLE_AI_STUDIO_KEY)
 
 # Initialize Mapping Service
 mapping_service = MappingService(GOOGLE_SHEET_URL, GOOGLE_SERVICE_ACCOUNT_FILE)
-
-# Initialize Telegram Bot
-bot = Bot(token=BOT_TOKEN, session=session)
-dp = Dispatcher()
-app = Flask(__name__)
 
 class ReceiptData(BaseModel):
     alpha_name: Optional[str] = Field(None, description="The EXACT legal name of the merchant as written on the receipt (e.g. 'PROWEB MCHJ', 'OOO HITECH MED LAB').")
@@ -308,11 +301,29 @@ async def handle_legacy_text_lookup(message: types.Message):
 @app.route(f"/{WEBHOOK_SECRET}", methods=["POST"])
 def telegram_webhook():
     """Handle incoming updates from Telegram via Webhook."""
-    update_data = request.get_json()
-    if update_data:
-        update = types.Update(**update_data)
-        # Use a new event loop for each request to bridge Sync (Flask) and Async (aiogram)
-        asyncio.run(dp.feed_update(bot, update))
+    try:
+        # Create a temporary session with proxy for this specific loop
+        if os.environ.get('PYTHONANYWHERE_DOMAIN'):
+            proxy_session = AiohttpSession(proxy=f"http://{PROXY_URL}")
+            temp_bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN), session=proxy_session)
+        else:
+            temp_bot = bot
+
+        update = types.Update.model_validate(request.json, context={"bot": temp_bot})
+        
+        # Run the update in a new event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(dp.feed_update(temp_bot, update))
+        finally:
+            # Clean up session and loop
+            if os.environ.get('PYTHONANYWHERE_DOMAIN'):
+                loop.run_until_complete(proxy_session.close())
+            loop.close()
+            
+    except Exception as e:
+        app.logger.error(f"Webhook error: {e}")
     return "OK", 200
 
 async def on_startup():
