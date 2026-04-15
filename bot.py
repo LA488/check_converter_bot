@@ -24,8 +24,9 @@ from flask import Flask, request
 
 from mapping_service import MappingService
 
-# Load environment variables
-load_dotenv()
+# Load environment variables explicitly by absolute path
+env_path = os.path.join(os.path.dirname(__file__), '.env')
+load_dotenv(env_path)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GOOGLE_AI_STUDIO_KEY = os.getenv("GOOGLE_AI_STUDIO_KEY")
@@ -34,6 +35,11 @@ GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")
 PA_USERNAME = os.getenv("PYTHONANYWHERE_USERNAME")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 PROXY_URL = "proxy.server:3128"
+
+# Resolve credentials file path to absolute path safely
+BASE_DIR = os.path.dirname(__file__)
+if GOOGLE_SERVICE_ACCOUNT_FILE and not os.path.isabs(GOOGLE_SERVICE_ACCOUNT_FILE):
+    GOOGLE_SERVICE_ACCOUNT_FILE = os.path.join(BASE_DIR, GOOGLE_SERVICE_ACCOUNT_FILE)
 
 # Construct Webhook URL
 WEBHOOK_URL = f"https://{PA_USERNAME}.pythonanywhere.com/{WEBHOOK_SECRET}"
