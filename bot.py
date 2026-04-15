@@ -10,10 +10,13 @@ import gspread
 from google import genai
 from PIL import Image
 from aiogram import Bot, Dispatcher, types, F
+from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.filters import Command
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
@@ -36,8 +39,14 @@ PROXY_URL = "proxy.server:3128"
 WEBHOOK_URL = f"https://{PA_USERNAME}.pythonanywhere.com/{WEBHOOK_SECRET}"
 
 # Bot and Dispatcher setup
-# We will initialize them without a global session to avoid loop conflicts on PythonAnywhere
-bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
+# We will initialize Bot with a proxy session if on PythonAnywhere to avoid global loop issues
+def get_bot():
+    if os.environ.get('PYTHONANYWHERE_DOMAIN'):
+        session = AiohttpSession(proxy=f"http://{PROXY_URL}")
+        return Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML), session=session)
+    return Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+
+bot = get_bot()
 dp = Dispatcher(storage=MemoryStorage())
 app = Flask(__name__)
 
@@ -302,28 +311,26 @@ async def handle_legacy_text_lookup(message: types.Message):
 def telegram_webhook():
     """Handle incoming updates from Telegram via Webhook."""
     try:
-        # Create a temporary session with proxy for this specific loop
-        if os.environ.get('PYTHONANYWHERE_DOMAIN'):
-            proxy_session = AiohttpSession(proxy=f"http://{PROXY_URL}")
-            temp_bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN), session=proxy_session)
-        else:
-            temp_bot = bot
-
-        update = types.Update.model_validate(request.json, context={"bot": temp_bot})
-        
-        # Run the update in a new event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(dp.feed_update(temp_bot, update))
-        finally:
-            # Clean up session and loop
+        async def process_update():
+            # Create a fresh session and bot for this request to avoid "loop closed" errors
             if os.environ.get('PYTHONANYWHERE_DOMAIN'):
-                loop.run_until_complete(proxy_session.close())
-            loop.close()
-            
+                async with AiohttpSession(proxy=f"http://{PROXY_URL}") as session:
+                    temp_bot = Bot(
+                        token=BOT_TOKEN, 
+                        default=DefaultBotProperties(parse_mode=ParseMode.HTML), 
+                        session=session
+                    )
+                    update = types.Update.model_validate(request.json, context={"bot": temp_bot})
+                    await dp.feed_update(temp_bot, update)
+            else:
+                # Local or non-PA environment
+                update = types.Update.model_validate(request.json, context={"bot": bot})
+                await dp.feed_update(bot, update)
+
+        asyncio.run(process_update())
     except Exception as e:
         app.logger.error(f"Webhook error: {e}")
+        print(f"Webhook error: {e}")
     return "OK", 200
 
 async def on_startup():
