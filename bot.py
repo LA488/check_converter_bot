@@ -2,6 +2,8 @@ import asyncio
 import os
 import json
 import re
+import traceback
+
 from io import BytesIO
 from datetime import datetime
 from typing import Optional
@@ -81,8 +83,10 @@ def get_sheets_client():
         return None
 
 async def extract_receipt_data(image_bytes: bytes):
-    """Sends image to Google Gemini 1.5 Flash for data extraction."""
+    """Sends image to Google Gemini for data extraction with quota handling."""
+    model_name = 'gemini-2.5-flash' # Correct version for 2026
     try:
+
         img = Image.open(BytesIO(image_bytes))
         
         prompt = """
@@ -94,7 +98,7 @@ async def extract_receipt_data(image_bytes: bytes):
         """
 
         response = await gemini_client.aio.models.generate_content(
-            model='gemini-2.5-flash',
+            model=model_name,
             contents=[img, prompt],
             config=genai.types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -103,14 +107,53 @@ async def extract_receipt_data(image_bytes: bytes):
         )
         
         raw_text = response.text.strip()
-        print(f"DEBUG: Raw AI Response: {raw_text}")
-        
         data_dict = json.loads(raw_text)
         validated_data = ReceiptData(**data_dict)
         return validated_data.model_dump()
     except Exception as e:
+        error_msg = str(e)
+        if "429" in error_msg or "quota" in error_msg.lower():
+            print(f"CRITICAL: Quota exceeded for {model_name}")
+            return "QUOTA_EXCEEDED"
         print(f"Gemini Extraction Error: {e}")
         return None
+
+async def extract_text_data(text: str):
+    """Parses text (e.g. bank SMS) using Gemini to extract merchant data."""
+    model_name = 'gemini-2.5-flash'
+    try:
+
+        prompt = f"""
+        Extract receipt data from this text (it might be a bank SMS or notification):
+        "{text}"
+
+        Return JSON with:
+        - alpha_name: Legal merchant name (if found).
+        - brand_name: Clean brand name.
+        - category: Business category in Russian.
+        - subcategory: Business subcategory in Russian.
+        """
+
+        response = await gemini_client.aio.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=genai.types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_json_schema=ReceiptData.model_json_schema()
+            )
+        )
+        
+        raw_text = response.text.strip()
+        data_dict = json.loads(raw_text)
+        validated_data = ReceiptData(**data_dict)
+        return validated_data.model_dump()
+    except Exception as e:
+        error_msg = str(e)
+        if "429" in error_msg or "quota" in error_msg.lower():
+            return "QUOTA_EXCEEDED"
+        print(f"Gemini Text Extraction Error: {e}")
+        return None
+
 
 async def save_to_sheet(data: dict):
     """Appends extracted data to Google Sheets (Worksheet 0)."""
@@ -144,6 +187,9 @@ class SearchState(StatesGroup):
     waiting_for_category = State()
     waiting_for_subcategory = State()
 
+class ConfirmState(StatesGroup):
+    waiting_confirmation = State()
+
 # --- Keyboards ---
 def get_main_keyboard():
     buttons = [
@@ -160,6 +206,13 @@ def get_main_keyboard():
 
 def get_cancel_keyboard():
     buttons = [[KeyboardButton(text="❌ Отмена")]]
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
+
+def get_confirmation_keyboard():
+    buttons = [
+        [KeyboardButton(text="✅ Все верно"), KeyboardButton(text="✏️ Редактировать")],
+        [KeyboardButton(text="❌ Отмена")]
+    ]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
 @dp.message(Command("start"))
@@ -204,9 +257,9 @@ async def cmd_reload(message: types.Message):
     await message.answer("🔄 База брендов успешно обновлена!")
 
 @dp.message(F.photo)
-async def handle_photo(message: types.Message):
+async def handle_photo(message: types.Message, state: FSMContext):
     status_msg = await message.answer("🚀 Анализируем чек...")
-    
+
     try:
         photo = message.photo[-1]
         file_info = await bot.get_file(photo.file_id)
@@ -215,43 +268,55 @@ async def handle_photo(message: types.Message):
 
         await status_msg.edit_text("🔍 Извлекаем данные...")
         extracted_data = await extract_receipt_data(img_data)
-        
+
+        if extracted_data == "QUOTA_EXCEEDED":
+            await status_msg.edit_text("⚠️ Лимит запросов к нейросети исчерпан. Попробуйте позже (через 24 часа) или обратитесь к администратору.")
+            return
+
         if not extracted_data or not extracted_data.get('alpha_name'):
-            await status_msg.edit_text("❌ Не удалось распознать данные о компании.")
+            await status_msg.edit_text("❌ Не удалось распознать данные на этом чеке. Попробуйте еще раз или пришлите текст СМС.")
             return
 
         alpha_name = extracted_data.get('alpha_name', '')
-        
-        # Check if already exists in sheets
-        mapping = mapping_service.find_mapping_by_legal_name(alpha_name)
-        if mapping:
-            await status_msg.edit_text("Такая компания уже имеется в таблице")
-            return
-            
         brand_name = extracted_data.get('brand_name', '')
         category = extracted_data.get('category', '')
         subcategory = extracted_data.get('subcategory', '')
-        date_added = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-        save_msg = f"✅ Распознано:\n"
-        save_msg += f"🏢 Компания: {alpha_name}\n"
-        save_msg += f"📁 Категория: {category}\n"
+        # Check if mapping exists
+        mapping = mapping_service.find_mapping_by_legal_name(alpha_name)
+        if mapping:
+            # Use existing mapping
+            brand_name = mapping.get('ИМЯ', brand_name)
+            category = mapping.get('КАТЕГОРИЯ', category)
+            subcategory = mapping.get('ПОДКАТЕГОРИЯ', subcategory)
+
+        # Store data for confirmation
+        await state.update_data(
+            alpha_name=alpha_name,
+            brand_name=brand_name,
+            category=category,
+            subcategory=subcategory,
+            is_new_mapping=not mapping
+        )
+
+        confirm_msg = f"✅ Распознано:\n\n"
+        confirm_msg += f"🏢 Юр. лицо: {alpha_name}\n"
+        confirm_msg += f"🏷 Бренд: {brand_name}\n"
+        confirm_msg += f"📁 Категория: {category}\n"
         if subcategory:
-            save_msg += f"Подкатегория: {subcategory}\n"
-        save_msg += f"Дата добавления: {date_added}\n\n"
-        save_msg += "📝 Записываю в таблицу..."
-        
-        await status_msg.edit_text(save_msg)
-        
-        success = await save_to_sheet(extracted_data)
-        if success:
-            await status_msg.answer("✨ Запись добавлена!")
-            mapping_service._load_data() # Reload cache after successful insert
-        else:
-            await status_msg.answer("⚠️ Ошибка при записи в таблицу.")
+            confirm_msg += f"🔹 Подкатегория: {subcategory}\n"
+
+        if not mapping:
+            confirm_msg += f"\n⚠️ Новая компания (будет добавлена в справочник)\n"
+
+        confirm_msg += f"\nВсе верно?"
+
+        await status_msg.edit_text(confirm_msg, reply_markup=get_confirmation_keyboard())
+        await state.set_state(ConfirmState.waiting_confirmation)
 
     except Exception as e:
         await status_msg.edit_text(f"🔴 Ошибка: {str(e)}")
+        await state.clear()
 
 @dp.message(SearchState.waiting_for_brand)
 @dp.message(SearchState.waiting_for_legal)
@@ -295,13 +360,68 @@ async def handle_search_query(message: types.Message, state: FSMContext):
     await state.clear()
 
 @dp.message(F.text & ~F.starts_with("/"))
-async def handle_legacy_text_lookup(message: types.Message):
-    """Fallback for direct text input (defaults to brand search)."""
+async def handle_text_logic(message: types.Message, state: FSMContext):
+    """Processes search queries or parses SMS text as receipts."""
+    current_state = await state.get_state()
+
+    # Handle confirmation buttons
+    if current_state == ConfirmState.waiting_confirmation:
+        if message.text == "✅ Все верно":
+            data = await state.get_data()
+            status_msg = await message.answer("📝 Сохраняю в таблицу...")
+
+            # Save to expenses sheet (worksheet 0)
+            success = await save_to_sheet(data)
+
+            # If new mapping, also add to mapping sheet
+            if data.get('is_new_mapping'):
+                try:
+                    client = get_sheets_client()
+                    if client:
+                        sh = client.open_by_url(GOOGLE_SHEET_URL)
+                        mapping_sheet = sh.worksheet("Sheet1")  # Mapping sheet
+                        mapping_row = [
+                            data.get('brand_name', ''),
+                            data.get('alpha_name', ''),
+                            data.get('category', ''),
+                            data.get('subcategory', ''),
+                            datetime.now().strftime("%Y-%m-%d %H:%M")
+                        ]
+                        mapping_sheet.append_row(mapping_row)
+                        mapping_service._load_data()
+                except Exception as e:
+                    print(f"Error adding to mapping: {e}")
+
+            if success:
+                await status_msg.edit_text("✨ Запись добавлена!", reply_markup=get_main_keyboard())
+            else:
+                await status_msg.edit_text("⚠️ Ошибка при записи в таблицу.", reply_markup=get_main_keyboard())
+
+            await state.clear()
+            return
+
+        elif message.text == "✏️ Редактировать":
+            await message.answer(
+                "Отправьте исправленные данные в формате:\n\n"
+                "Бренд: название\n"
+                "Юр.лицо: название\n"
+                "Категория: название\n"
+                "Подкатегория: название",
+                reply_markup=get_cancel_keyboard()
+            )
+            return
+
+        elif message.text == "❌ Отмена":
+            await state.clear()
+            await message.answer("Отменено.", reply_markup=get_main_keyboard())
+            return
+
     query = message.text.strip()
+
+    # 1. First, try simple brand lookup
     results = mapping_service.search_by_brand_name(query)
-    # ... (same logic as above or just redirect)
     if results:
-        response = f"🔍 **Найдено по названию:**\n\n"
+        response = f"🔍 **Найдено в базе:**\n\n"
         for row in results:
             response += (
                 f"🏷 **Бренд:** {row.get('ИМЯ')}\n"
@@ -310,8 +430,58 @@ async def handle_legacy_text_lookup(message: types.Message):
                 f"-------------------\n"
             )
         await message.answer(response, parse_mode="Markdown", reply_markup=get_main_keyboard())
-    else:
-        await message.answer("Выберите режим поиска кнопками ниже:", reply_markup=get_main_keyboard())
+        return
+
+    # 2. If length > 20, assume it's an SMS/Notification and try AI parsing
+    if len(query) > 20:
+        status_msg = await message.answer("🤖 Текст не найден в базе. Пробую распознать как СМС...")
+        extracted_data = await extract_text_data(query)
+
+        if extracted_data == "QUOTA_EXCEEDED":
+            await status_msg.edit_text("⚠️ Лимит нейросети исчерпан. Поиск в базе результатов не дал.")
+            return
+
+        if extracted_data and extracted_data.get('alpha_name'):
+            alpha_name = extracted_data.get('alpha_name')
+            brand_name = extracted_data.get('brand_name')
+            category = extracted_data.get('category')
+            subcategory = extracted_data.get('subcategory', '')
+
+            # Check if mapping exists
+            mapping = mapping_service.find_mapping_by_legal_name(alpha_name)
+            if mapping:
+                brand_name = mapping.get('ИМЯ', brand_name)
+                category = mapping.get('КАТЕГОРИЯ', category)
+                subcategory = mapping.get('ПОДКАТЕГОРИЯ', subcategory)
+
+            # Store for confirmation
+            await state.update_data(
+                alpha_name=alpha_name,
+                brand_name=brand_name,
+                category=category,
+                subcategory=subcategory,
+                is_new_mapping=not mapping
+            )
+
+            confirm_msg = f"✨ СМС распознано:\n\n"
+            confirm_msg += f"🏢 Юр.лицо: {alpha_name}\n"
+            confirm_msg += f"🏷 Бренд: {brand_name}\n"
+            confirm_msg += f"📁 Категория: {category}\n"
+            if subcategory:
+                confirm_msg += f"🔹 Подкатегория: {subcategory}\n"
+
+            if not mapping:
+                confirm_msg += f"\n⚠️ Новая компания (будет добавлена в справочник)\n"
+
+            confirm_msg += f"\nВсе верно?"
+
+            await status_msg.edit_text(confirm_msg, reply_markup=get_confirmation_keyboard())
+            await state.set_state(ConfirmState.waiting_confirmation)
+            return
+
+    # 3. Fallback
+    await message.answer("🔍 Ничего не найдено. Выберите режим поиска кнопками ниже:", reply_markup=get_main_keyboard())
+
 
 @app.route(f"/{WEBHOOK_SECRET}", methods=["POST"])
 def telegram_webhook():
@@ -320,24 +490,29 @@ def telegram_webhook():
         async def process_update():
             # Create a fresh session and bot for this request to avoid "loop closed" errors
             if os.environ.get('PYTHONANYWHERE_DOMAIN'):
+                # Explicitly use the proxy URL for stable networking on PA
                 async with AiohttpSession(proxy=f"http://{PROXY_URL}") as session:
-                    temp_bot = Bot(
+                    async with Bot(
                         token=BOT_TOKEN, 
                         default=DefaultBotProperties(parse_mode=ParseMode.HTML), 
                         session=session
-                    )
-                    update = types.Update.model_validate(request.json, context={"bot": temp_bot})
-                    await dp.feed_update(temp_bot, update)
+                    ) as temp_bot:
+                        update = types.Update.model_validate(request.json, context={"bot": temp_bot})
+                        await dp.feed_update(temp_bot, update)
             else:
                 # Local or non-PA environment
-                update = types.Update.model_validate(request.json, context={"bot": bot})
-                await dp.feed_update(bot, update)
+                async with Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML)) as temp_bot:
+                    update = types.Update.model_validate(request.json, context={"bot": temp_bot})
+                    await dp.feed_update(temp_bot, update)
 
         asyncio.run(process_update())
     except Exception as e:
-        app.logger.error(f"Webhook error: {e}")
-        print(f"Webhook error: {e}")
+        error_trace = traceback.format_exc()
+        app.logger.error(f"Webhook error: {e}\n{error_trace}")
+        print(f"Webhook error: {e}\n{error_trace}")
     return "OK", 200
+
+
 
 async def on_startup():
     """Set webhook and bot menu with retries to handle proxy instability."""

@@ -1,7 +1,8 @@
 import os
 import gspread
 from rapidfuzz import process, fuzz
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict # Critical for server-side compatibility
+
 
 class MappingService:
     def __init__(self, google_sheet_url: str, credentials_file: str):
