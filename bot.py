@@ -223,12 +223,24 @@ def get_confirmation_keyboard():
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
-    await message.answer(
-        "👋 Привет! Я умный сканер чеков с базой брендов.\n\n"
-        "1. **Пришли фото чека** — я автоматически определю категорию по юр. лицу.\n"
-        "2. **Выбери режим поиска** ниже, чтобы найти информацию вручную.",
-        reply_markup=get_main_keyboard()
+
+    welcome_text = (
+        "👋 Привет! Я твой умный помощник по учету расходов.\n\n"
+        "🤖 <b>Что я умею:</b>\n"
+        "📸 Сканирую чеки — просто пришли фото\n"
+        "💬 Читаю SMS от банков — отправь текст сообщения\n"
+        "🧠 Автоматически определяю категории и бренды\n"
+        "📊 Сохраняю все в Google Таблицу\n"
+        "🔍 Ищу информацию по брендам и категориям\n\n"
+        "✨ <b>Как пользоваться:</b>\n"
+        "• Отправь фото чека или текст SMS\n"
+        "• Я распознаю данные и покажу результат\n"
+        "• Проверь и нажми <b>✅ Все верно</b>\n"
+        "• Или отредактируй через <b>✏️ Редактировать</b>\n\n"
+        "💡 Используй кнопки ниже для поиска в базе брендов!"
     )
+
+    await message.answer(welcome_text, reply_markup=get_main_keyboard())
 
 @dp.message(F.text == "❌ Отмена")
 async def cmd_cancel(message: types.Message, state: FSMContext):
