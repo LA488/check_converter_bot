@@ -210,10 +210,9 @@ def get_cancel_keyboard():
 
 def get_confirmation_keyboard():
     buttons = [
-        [
-            InlineKeyboardButton(text="✅ Все верно", callback_data="confirm_save"),
-            InlineKeyboardButton(text="❌ Отмена", callback_data="confirm_cancel")
-        ]
+        [InlineKeyboardButton(text="✅ Все верно", callback_data="confirm_save")],
+        [InlineKeyboardButton(text="✏️ Редактировать", callback_data="confirm_edit")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="confirm_cancel")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -407,6 +406,63 @@ async def handle_confirm_cancel(callback: types.CallbackQuery, state: FSMContext
     await callback.message.answer("Главное меню:", reply_markup=get_main_keyboard())
     await state.clear()
     await callback.answer()
+
+@dp.callback_query(F.data == "confirm_edit")
+async def handle_confirm_edit(callback: types.CallbackQuery, state: FSMContext):
+    """Handle edit button - allow user to edit the recognized data."""
+    data = await state.get_data()
+
+    edit_msg = "✏️ Редактирование данных\n\n"
+    edit_msg += "Отправьте исправленные данные в формате:\n\n"
+    edit_msg += f"Бренд: {data.get('brand_name', '')}\n"
+    edit_msg += f"Юр.лицо: {data.get('alpha_name', '')}\n"
+    edit_msg += f"Категория: {data.get('category', '')}\n"
+    edit_msg += f"Подкатегория: {data.get('subcategory', '')}\n\n"
+    edit_msg += "Скопируйте, отредактируйте и отправьте обратно"
+
+    await callback.message.edit_text(edit_msg)
+    await state.set_state(ConfirmState.waiting_confirmation)  # Keep state for manual edit
+    await callback.answer()
+
+@dp.message(ConfirmState.waiting_confirmation)
+async def handle_manual_edit(message: types.Message, state: FSMContext):
+    """Handle manually edited data from user."""
+    text = message.text.strip()
+
+    # Parse the edited data
+    lines = text.split('\n')
+    edited_data = {}
+
+    for line in lines:
+        if ':' in line:
+            key, value = line.split(':', 1)
+            key = key.strip().lower()
+            value = value.strip()
+
+            if 'бренд' in key:
+                edited_data['brand_name'] = value
+            elif 'юр' in key or 'лицо' in key:
+                edited_data['alpha_name'] = value
+            elif 'категор' in key and 'под' not in key:
+                edited_data['category'] = value
+            elif 'подкатегор' in key:
+                edited_data['subcategory'] = value
+
+    # Update state with edited data
+    old_data = await state.get_data()
+    old_data.update(edited_data)
+    await state.update_data(**old_data)
+
+    # Show confirmation again
+    confirm_msg = "✅ Обновленные данные:\n\n"
+    confirm_msg += f"🏢 Юр. лицо: {old_data.get('alpha_name', '')}\n"
+    confirm_msg += f"🏷 Бренд: {old_data.get('brand_name', '')}\n"
+    confirm_msg += f"📁 Категория: {old_data.get('category', '')}\n"
+    if old_data.get('subcategory'):
+        confirm_msg += f"🔹 Подкатегория: {old_data.get('subcategory', '')}\n"
+    confirm_msg += f"\nВсе верно?"
+
+    await message.answer(confirm_msg, reply_markup=get_confirmation_keyboard())
 
 @dp.message(F.text & ~F.starts_with("/"))
 async def handle_text_logic(message: types.Message, state: FSMContext):
