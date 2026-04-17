@@ -76,6 +76,9 @@ gemini_client = genai.Client(api_key=GOOGLE_AI_STUDIO_KEY)
 # Initialize Mapping Service
 mapping_service = MappingService(GOOGLE_SHEET_URL, GOOGLE_SERVICE_ACCOUNT_FILE)
 
+# Track last save operations per user to prevent duplicates
+last_save_tracker = {}  # {user_id: {'data': {...}, 'timestamp': datetime}}
+
 class ReceiptData(BaseModel):
     alpha_name: Optional[str] = Field(None, description="The EXACT legal name of the merchant as written on the receipt (e.g. 'PROWEB MCHJ', 'OOO HITECH MED LAB').")
     brand_name: Optional[str] = Field(None, description="The commercial short brand name (e.g. 'Proweb' for 'PROWEB MCHJ', 'Yandex Go' for 'YANDEXGO UB SCOOTER').")
@@ -422,7 +425,8 @@ async def handle_search_query(message: types.Message, state: FSMContext):
 @dp.callback_query(F.data == "confirm_save")
 async def handle_confirm_save(callback: types.CallbackQuery, state: FSMContext):
     """Handle save confirmation button."""
-    print(f"[CALLBACK] confirm_save triggered by user {callback.from_user.id}")
+    user_id = callback.from_user.id
+    print(f"[CALLBACK] confirm_save triggered by user {user_id}")
 
     # Immediately answer callback to prevent double-click
     await callback.answer()
@@ -434,6 +438,25 @@ async def handle_confirm_save(callback: types.CallbackQuery, state: FSMContext):
     if data.get('processing'):
         print(f"[CALLBACK] Already processing, ignoring duplicate click")
         return
+
+    # Check if this exact data was just saved by this user
+    if user_id in last_save_tracker:
+        last_save = last_save_tracker[user_id]
+        last_data = last_save['data']
+        last_time = last_save['timestamp']
+        time_diff = (datetime.now(UZ_TIMEZONE) - last_time).total_seconds()
+
+        # Check if same data within last 10 seconds
+        if (time_diff < 10 and
+            last_data.get('brand_name') == data.get('brand_name') and
+            last_data.get('alpha_name') == data.get('alpha_name') and
+            last_data.get('category') == data.get('category') and
+            last_data.get('subcategory') == data.get('subcategory')):
+            print(f"[DUPLICATE BLOCKED] User {user_id} tried to save same data within {time_diff} seconds")
+            await callback.message.edit_text("⚠️ Эта запись уже была сохранена только что!")
+            await callback.message.answer("Главное меню:", reply_markup=get_main_keyboard())
+            await state.clear()
+            return
 
     # Mark as processing
     await state.update_data(processing=True)
@@ -467,6 +490,13 @@ async def handle_confirm_save(callback: types.CallbackQuery, state: FSMContext):
     success = await save_to_sheet(data)
     print(f"[SAVE] Save result: {success}")
 
+    # Track this save operation
+    last_save_tracker[user_id] = {
+        'data': data.copy(),
+        'timestamp': datetime.now(UZ_TIMEZONE)
+    }
+    print(f"[TRACKER] Saved operation for user {user_id}")
+
     if success == "DUPLICATE":
         await callback.message.edit_text("⚠️ Эта запись уже была сохранена недавно (обнаружен дубликат).")
         await callback.message.answer("Главное меню:", reply_markup=get_main_keyboard())
@@ -477,7 +507,7 @@ async def handle_confirm_save(callback: types.CallbackQuery, state: FSMContext):
         await callback.message.edit_text("⚠️ Ошибка при записи в таблицу.")
         await callback.message.answer("Главное меню:", reply_markup=get_main_keyboard())
 
-    print(f"[CALLBACK] Clearing state for user {callback.from_user.id}")
+    print(f"[CALLBACK] Clearing state for user {user_id}")
     await state.clear()
 
 @dp.callback_query(F.data == "confirm_cancel")
