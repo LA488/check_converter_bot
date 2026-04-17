@@ -293,7 +293,11 @@ async def handle_photo(message: types.Message, state: FSMContext):
         extracted_data = await extract_receipt_data(img_data)
 
         if extracted_data == "QUOTA_EXCEEDED":
-            await status_msg.edit_text("⚠️ Лимит запросов к нейросети исчерпан. Попробуйте позже (через 24 часа) или обратитесь к администратору.")
+            await status_msg.edit_text(
+                "⚠️ <b>Превышен лимит запросов к AI-модели</b>\n\n"
+                "Бесплатная квота Gemini API исчерпана. Лимиты обновляются ежедневно в полночь по тихоокеанскому времени (Pacific Time).\n\n"
+                "Пожалуйста, попробуйте позже или обратитесь к администратору для увеличения квоты."
+            )
             return
 
         if not extracted_data or not extracted_data.get('alpha_name'):
@@ -537,7 +541,11 @@ async def handle_text_logic(message: types.Message, state: FSMContext):
         extracted_data = await extract_text_data(query)
 
         if extracted_data == "QUOTA_EXCEEDED":
-            await status_msg.edit_text("⚠️ Лимит нейросети исчерпан. Поиск в базе результатов не дал.")
+            await status_msg.edit_text(
+                "⚠️ <b>Превышен лимит запросов к AI-модели</b>\n\n"
+                "Бесплатная квота Gemini API исчерпана. Лимиты обновляются ежедневно в полночь по тихоокеанскому времени (Pacific Time).\n\n"
+                "Поиск в базе данных результатов не дал. Попробуйте позже или обратитесь к администратору."
+            )
             return
 
         if extracted_data and extracted_data.get('alpha_name'):
