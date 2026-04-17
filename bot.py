@@ -587,8 +587,8 @@ def telegram_webhook():
                 # Explicitly use the proxy URL for stable networking on PA
                 async with AiohttpSession(proxy=f"http://{PROXY_URL}") as session:
                     async with Bot(
-                        token=BOT_TOKEN, 
-                        default=DefaultBotProperties(parse_mode=ParseMode.HTML), 
+                        token=BOT_TOKEN,
+                        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
                         session=session
                     ) as temp_bot:
                         update = types.Update.model_validate(request.json, context={"bot": temp_bot})
@@ -599,7 +599,17 @@ def telegram_webhook():
                     update = types.Update.model_validate(request.json, context={"bot": temp_bot})
                     await dp.feed_update(temp_bot, update)
 
-        asyncio.run(process_update())
+        # Use get_event_loop or create new one if closed
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        loop.run_until_complete(process_update())
     except Exception as e:
         error_trace = traceback.format_exc()
         app.logger.error(f"Webhook error: {e}\n{error_trace}")
