@@ -26,6 +26,10 @@ from flask import Flask, request
 
 from mapping_service import MappingService
 
+# Bot version for tracking deployments
+BOT_VERSION = "2.0.0-inline-buttons"
+print(f"🤖 Bot version: {BOT_VERSION}")
+
 # Load environment variables explicitly by absolute path
 env_path = os.path.join(os.path.dirname(__file__), '.env')
 load_dotenv(env_path)
@@ -363,6 +367,7 @@ async def handle_search_query(message: types.Message, state: FSMContext):
 @dp.callback_query(F.data == "confirm_save")
 async def handle_confirm_save(callback: types.CallbackQuery, state: FSMContext):
     """Handle save confirmation button."""
+    print(f"[CALLBACK] confirm_save triggered by user {callback.from_user.id}")
     data = await state.get_data()
 
     await callback.message.edit_text("📝 Сохраняю в таблицу...")
@@ -402,6 +407,7 @@ async def handle_confirm_save(callback: types.CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "confirm_cancel")
 async def handle_confirm_cancel(callback: types.CallbackQuery, state: FSMContext):
     """Handle cancel button."""
+    print(f"[CALLBACK] confirm_cancel triggered by user {callback.from_user.id}")
     await callback.message.edit_text("❌ Отменено")
     await callback.message.answer("Главное меню:", reply_markup=get_main_keyboard())
     await state.clear()
@@ -410,6 +416,7 @@ async def handle_confirm_cancel(callback: types.CallbackQuery, state: FSMContext
 @dp.callback_query(F.data == "confirm_edit")
 async def handle_confirm_edit(callback: types.CallbackQuery, state: FSMContext):
     """Handle edit button - allow user to edit the recognized data."""
+    print(f"[CALLBACK] confirm_edit triggered by user {callback.from_user.id}")
     data = await state.get_data()
 
     edit_msg = "✏️ Редактирование данных\n\n"
@@ -534,6 +541,13 @@ async def handle_text_logic(message: types.Message, state: FSMContext):
     await message.answer("🔍 Ничего не найдено. Выберите режим поиска кнопками ниже:", reply_markup=get_main_keyboard())
 
 
+@dp.callback_query()
+async def handle_any_callback(callback: types.CallbackQuery):
+    """Fallback handler for unhandled callbacks - for debugging."""
+    print(f"[UNHANDLED CALLBACK] data={callback.data}, user={callback.from_user.id}")
+    await callback.answer("⚠️ Callback получен, но handler не найден. Проверьте версию бота на сервере!")
+
+
 @app.route(f"/{WEBHOOK_SECRET}", methods=["POST"])
 def telegram_webhook():
     """Handle incoming updates from Telegram via Webhook."""
@@ -604,9 +618,13 @@ async def start_polling():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
+    # Log registered handlers count
+    print(f"📊 Registered message handlers: {len([h for h in dp.message.handlers if h])}")
+    print(f"📊 Registered callback handlers: {len([h for h in dp.callback_query.handlers if h])}")
+
     # Check if we are running on PythonAnywhere
     if os.environ.get('PYTHONANYWHERE_DOMAIN'):
-        # On PythonAnywhere, we don't 'run' the app here. 
+        # On PythonAnywhere, we don't 'run' the app here.
         # PythonAnywhere's WSGI server will import 'app' and run it.
         # But we need to ensure the webhook is set.
         print("Running on PythonAnywhere (Webhook mode enabled).")
