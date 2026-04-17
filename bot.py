@@ -5,7 +5,7 @@ import re
 import traceback
 
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import gspread
@@ -29,6 +29,13 @@ from mapping_service import MappingService
 # Bot version for tracking deployments
 BOT_VERSION = "2.0.0-inline-buttons"
 print(f"🤖 Bot version: {BOT_VERSION}")
+
+# Timezone for Uzbekistan (UTC+5)
+UZ_TIMEZONE = timezone(timedelta(hours=5))
+
+def get_uz_time():
+    """Returns current time in Uzbekistan timezone (UTC+5)."""
+    return datetime.now(UZ_TIMEZONE).strftime("%Y-%m-%d %H:%M")
 
 # Load environment variables explicitly by absolute path
 env_path = os.path.join(os.path.dirname(__file__), '.env')
@@ -164,21 +171,20 @@ async def save_to_sheet(data: dict):
     client = get_sheets_client()
     if not client:
         return False
-    
+
     try:
         sh = client.open_by_url(GOOGLE_SHEET_URL)
-        # We assume expenses go to a different sheet than mapping if possible, 
-        # but for now we'll use the first sheet as per previous setup.
-        sheet = sh.get_worksheet(0) 
-        
+        sheet = sh.get_worksheet(0)
+
         row = [
             data.get('brand_name', ''),
             data.get('alpha_name', ''),
             data.get('category', ''),
             data.get('subcategory', ''),
-            datetime.now().strftime("%Y-%m-%d %H:%M")
+            get_uz_time()  # Use UTC+5 time
         ]
         sheet.append_row(row)
+        print(f"[SAVE] Expense saved to worksheet 0 at {get_uz_time()}")
         return True
     except Exception as e:
         print(f"Sheets Error: {e}")
@@ -384,7 +390,14 @@ async def handle_confirm_save(callback: types.CallbackQuery, state: FSMContext):
     # Immediately answer callback to prevent double-click
     await callback.answer()
 
+    # Check if already processing
     data = await state.get_data()
+    if data.get('processing'):
+        print(f"[CALLBACK] Already processing, ignoring duplicate click")
+        return
+
+    # Mark as processing
+    await state.update_data(processing=True)
 
     await callback.message.edit_text("📝 Сохраняю в таблицу...")
 
@@ -400,11 +413,11 @@ async def handle_confirm_save(callback: types.CallbackQuery, state: FSMContext):
                     data.get('alpha_name', ''),
                     data.get('category', ''),
                     data.get('subcategory', ''),
-                    datetime.now().strftime("%Y-%m-%d %H:%M")
+                    get_uz_time()  # Use UTC+5 time
                 ]
                 mapping_sheet.append_row(mapping_row)
                 mapping_service._load_data()
-                print(f"[SAVE] New mapping added to Sheet1")
+                print(f"[SAVE] New mapping added to Sheet1 at {get_uz_time()}")
         except Exception as e:
             print(f"Error adding to mapping: {e}")
 
