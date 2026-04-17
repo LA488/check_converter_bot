@@ -596,10 +596,15 @@ async def handle_text_logic(message: types.Message, state: FSMContext):
 
     # 2. If length > 20, assume it's an SMS/Notification and try AI parsing
     if len(query) > 20:
+        print(f"[SMS PARSE] Starting SMS parsing for user {message.from_user.id}, text length: {len(query)}")
         status_msg = await message.answer("🤖 Текст не найден в базе. Пробую распознать как СМС...")
+
+        print(f"[SMS PARSE] Calling extract_text_data...")
         extracted_data = await extract_text_data(query)
+        print(f"[SMS PARSE] extract_text_data returned: {extracted_data}")
 
         if extracted_data == "QUOTA_EXCEEDED":
+            print(f"[SMS PARSE] Quota exceeded")
             await status_msg.edit_text(
                 "⚠️ <b>Превышен лимит запросов к AI-модели</b>\n\n"
                 "Бесплатная квота Gemini API исчерпана. Лимиты обновляются ежедневно в полночь по тихоокеанскому времени (Pacific Time).\n\n"
