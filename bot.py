@@ -153,14 +153,13 @@ Return JSON with:
         }
 
         payload = {
-            "model": "google/gemini-flash-1.5",  # Free model via OpenRouter
+            "model": "google/gemini-2.0-flash-exp:free",  # Free Gemini model via OpenRouter
             "messages": [
                 {
                     "role": "user",
                     "content": prompt
                 }
-            ],
-            "response_format": {"type": "json_object"}
+            ]
         }
 
         # Create session WITHOUT proxy for OpenRouter (direct connection)
@@ -184,6 +183,14 @@ Return JSON with:
 
                 raw_text = result['choices'][0]['message']['content'].strip()
                 print(f"[OPENROUTER] Response: {raw_text}")
+
+                # Remove markdown code blocks if present
+                if raw_text.startswith('```'):
+                    raw_text = raw_text.split('```')[1]
+                    if raw_text.startswith('json'):
+                        raw_text = raw_text[4:]
+                    raw_text = raw_text.strip()
+
                 data_dict = json.loads(raw_text)
                 validated_data = ReceiptData(**data_dict)
                 return validated_data.model_dump()
