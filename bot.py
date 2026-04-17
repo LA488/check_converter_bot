@@ -43,7 +43,6 @@ load_dotenv(env_path)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GOOGLE_AI_STUDIO_KEY = os.getenv("GOOGLE_AI_STUDIO_KEY")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 GOOGLE_SHEET_URL = os.getenv("GOOGLE_SHEET_URL")
 GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")
 PA_USERNAME = os.getenv("PYTHONANYWHERE_USERNAME")
@@ -134,10 +133,9 @@ async def extract_receipt_data(image_bytes: bytes):
         return None
 
 async def extract_text_data(text: str):
-    """Parses text (e.g. bank SMS) using OpenRouter to extract merchant data."""
+    """Parses text (e.g. bank SMS) using Gemini to extract merchant data."""
+    model_name = 'gemini-2.0-flash-exp'  # Use experimental free model
     try:
-        import aiohttp
-
         prompt = f"""Extract receipt data from this text (it might be a bank SMS or notification):
 "{text}"
 
@@ -147,59 +145,26 @@ Return JSON with:
 - category: Business category in Russian.
 - subcategory: Business subcategory in Russian."""
 
-        headers = {
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json"
-        }
+        response = await gemini_client.aio.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=genai.types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_json_schema=ReceiptData.model_json_schema()
+            )
+        )
 
-        payload = {
-            "model": "google/gemini-2.0-flash-exp:free",  # Free Gemini model via OpenRouter
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        }
-
-        # Create session WITHOUT proxy for OpenRouter (direct connection)
-        connector = aiohttp.TCPConnector()
-        async with aiohttp.ClientSession(connector=connector) as session:
-            async with session.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=30)
-            ) as response:
-                if response.status == 429:
-                    print(f"[OPENROUTER] Quota exceeded")
-                    return "QUOTA_EXCEEDED"
-
-                result = await response.json()
-
-                if response.status != 200:
-                    print(f"[OPENROUTER] Error {response.status}: {result}")
-                    return None
-
-                raw_text = result['choices'][0]['message']['content'].strip()
-                print(f"[OPENROUTER] Response: {raw_text}")
-
-                # Remove markdown code blocks if present
-                if raw_text.startswith('```'):
-                    raw_text = raw_text.split('```')[1]
-                    if raw_text.startswith('json'):
-                        raw_text = raw_text[4:]
-                    raw_text = raw_text.strip()
-
-                data_dict = json.loads(raw_text)
-                validated_data = ReceiptData(**data_dict)
-                return validated_data.model_dump()
-
+        raw_text = response.text.strip()
+        print(f"[GEMINI SMS] Response: {raw_text}")
+        data_dict = json.loads(raw_text)
+        validated_data = ReceiptData(**data_dict)
+        return validated_data.model_dump()
     except Exception as e:
         error_msg = str(e)
         if "429" in error_msg or "quota" in error_msg.lower():
+            print(f"[GEMINI SMS] Quota exceeded")
             return "QUOTA_EXCEEDED"
-        print(f"[ERROR] OpenRouter Text Extraction Error: {e}")
+        print(f"[ERROR] Gemini Text Extraction Error: {e}")
         traceback.print_exc()
         return None
 
