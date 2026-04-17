@@ -311,7 +311,8 @@ async def handle_photo(message: types.Message, state: FSMContext):
 
         confirm_msg += f"\nВсе верно?"
 
-        await status_msg.edit_text(confirm_msg, reply_markup=get_confirmation_keyboard())
+        await status_msg.edit_text(confirm_msg)
+        await message.answer("Выберите действие:", reply_markup=get_confirmation_keyboard())
         await state.set_state(ConfirmState.waiting_confirmation)
 
     except Exception as e:
@@ -475,7 +476,8 @@ async def handle_text_logic(message: types.Message, state: FSMContext):
 
             confirm_msg += f"\nВсе верно?"
 
-            await status_msg.edit_text(confirm_msg, reply_markup=get_confirmation_keyboard())
+            await status_msg.edit_text(confirm_msg)
+            await message.answer("Выберите действие:", reply_markup=get_confirmation_keyboard())
             await state.set_state(ConfirmState.waiting_confirmation)
             return
 
