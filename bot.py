@@ -368,14 +368,15 @@ async def handle_search_query(message: types.Message, state: FSMContext):
 async def handle_confirm_save(callback: types.CallbackQuery, state: FSMContext):
     """Handle save confirmation button."""
     print(f"[CALLBACK] confirm_save triggered by user {callback.from_user.id}")
+
+    # Immediately answer callback to prevent double-click
+    await callback.answer()
+
     data = await state.get_data()
 
     await callback.message.edit_text("📝 Сохраняю в таблицу...")
 
-    # Save to expenses sheet (worksheet 0)
-    success = await save_to_sheet(data)
-
-    # If new mapping, also add to mapping sheet
+    # If new mapping, add to mapping sheet (Sheet1)
     if data.get('is_new_mapping'):
         try:
             client = get_sheets_client()
@@ -391,8 +392,12 @@ async def handle_confirm_save(callback: types.CallbackQuery, state: FSMContext):
                 ]
                 mapping_sheet.append_row(mapping_row)
                 mapping_service._load_data()
+                print(f"[SAVE] New mapping added to Sheet1")
         except Exception as e:
             print(f"Error adding to mapping: {e}")
+
+    # Always save expense to worksheet 0
+    success = await save_to_sheet(data)
 
     if success:
         await callback.message.edit_text("✨ Запись добавлена!")
@@ -402,7 +407,6 @@ async def handle_confirm_save(callback: types.CallbackQuery, state: FSMContext):
         await callback.message.answer("Главное меню:", reply_markup=get_main_keyboard())
 
     await state.clear()
-    await callback.answer()
 
 @dp.callback_query(F.data == "confirm_cancel")
 async def handle_confirm_cancel(callback: types.CallbackQuery, state: FSMContext):
