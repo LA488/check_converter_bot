@@ -170,7 +170,7 @@ async def extract_text_data(text: str):
 
 
 async def save_to_sheet(data: dict):
-    """Appends extracted data to Google Sheets (Worksheet 0) with duplicate check."""
+    """Appends extracted data to Google Sheets (Worksheet 0)."""
     client = get_sheets_client()
     if not client:
         return False
@@ -187,37 +187,6 @@ async def save_to_sheet(data: dict):
         timestamp = get_uz_time()
 
         row = [brand_name, alpha_name, category, subcategory, timestamp]
-
-        # Check for duplicates in last 10 rows (recent entries)
-        all_values = sheet.get_all_values()
-        if len(all_values) > 1:  # Skip header row
-            recent_rows = all_values[-10:] if len(all_values) > 10 else all_values[1:]
-
-            for existing_row in recent_rows:
-                if len(existing_row) >= 4:
-                    # Check if brand, alpha_name, category, subcategory match
-                    if (existing_row[0] == brand_name and
-                        existing_row[1] == alpha_name and
-                        existing_row[2] == category and
-                        existing_row[3] == subcategory):
-
-                        # Check timestamp - if within last 2 minutes, it's a duplicate
-                        if len(existing_row) >= 5:
-                            existing_time = existing_row[4]
-                            print(f"[DUPLICATE CHECK] Found similar entry at {existing_time}, current time {timestamp}")
-
-                            # Parse timestamps and compare
-                            try:
-                                from datetime import datetime
-                                existing_dt = datetime.strptime(existing_time, "%Y-%m-%d %H:%M")
-                                current_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M")
-                                time_diff = abs((current_dt - existing_dt).total_seconds())
-
-                                if time_diff < 120:  # Less than 2 minutes
-                                    print(f"[DUPLICATE DETECTED] Skipping save - duplicate found within {time_diff} seconds")
-                                    return "DUPLICATE"
-                            except:
-                                pass
 
         sheet.append_row(row)
         print(f"[SAVE] Expense saved to worksheet 0 at {timestamp}")
@@ -489,10 +458,7 @@ async def handle_confirm_save(callback: types.CallbackQuery, state: FSMContext):
     }
     print(f"[TRACKER] Saved operation for user {user_id}")
 
-    if success == "DUPLICATE":
-        await callback.message.edit_text("⚠️ Эта запись уже была сохранена недавно (обнаружен дубликат).")
-        await callback.message.answer("Главное меню:", reply_markup=get_main_keyboard())
-    elif success:
+    if success:
         await callback.message.edit_text("✨ Запись добавлена!")
         await callback.message.answer("Главное меню:", reply_markup=get_main_keyboard())
     else:
