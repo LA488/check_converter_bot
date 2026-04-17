@@ -392,18 +392,22 @@ async def handle_confirm_save(callback: types.CallbackQuery, state: FSMContext):
 
     # Check if already processing
     data = await state.get_data()
+    print(f"[CALLBACK] Current state data: processing={data.get('processing')}, is_new_mapping={data.get('is_new_mapping')}")
+
     if data.get('processing'):
         print(f"[CALLBACK] Already processing, ignoring duplicate click")
         return
 
     # Mark as processing
     await state.update_data(processing=True)
+    print(f"[CALLBACK] Set processing=True, starting save operation")
 
     await callback.message.edit_text("📝 Сохраняю в таблицу...")
 
     # If new mapping, add to mapping sheet (Sheet1)
     if data.get('is_new_mapping'):
         try:
+            print(f"[SAVE] Adding new mapping to Sheet1...")
             client = get_sheets_client()
             if client:
                 sh = client.open_by_url(GOOGLE_SHEET_URL)
@@ -419,10 +423,12 @@ async def handle_confirm_save(callback: types.CallbackQuery, state: FSMContext):
                 mapping_service._load_data()
                 print(f"[SAVE] New mapping added to Sheet1 at {get_uz_time()}")
         except Exception as e:
-            print(f"Error adding to mapping: {e}")
+            print(f"[ERROR] Error adding to mapping: {e}")
 
     # Always save expense to worksheet 0
+    print(f"[SAVE] Saving expense to worksheet 0...")
     success = await save_to_sheet(data)
+    print(f"[SAVE] Save result: {success}")
 
     if success:
         await callback.message.edit_text("✨ Запись добавлена!")
@@ -431,6 +437,7 @@ async def handle_confirm_save(callback: types.CallbackQuery, state: FSMContext):
         await callback.message.edit_text("⚠️ Ошибка при записи в таблицу.")
         await callback.message.answer("Главное меню:", reply_markup=get_main_keyboard())
 
+    print(f"[CALLBACK] Clearing state for user {callback.from_user.id}")
     await state.clear()
 
 @dp.callback_query(F.data == "confirm_cancel")
@@ -487,7 +494,12 @@ async def handle_manual_edit(message: types.Message, state: FSMContext):
     # Update state with edited data
     old_data = await state.get_data()
     old_data.update(edited_data)
+
+    # Reset processing flag to allow new save
+    old_data['processing'] = False
     await state.update_data(**old_data)
+
+    print(f"[EDIT] User {message.from_user.id} edited data, showing confirmation again")
 
     # Show confirmation again
     confirm_msg = "✅ Обновленные данные:\n\n"
