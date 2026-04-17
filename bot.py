@@ -163,11 +163,14 @@ Return JSON with:
             "response_format": {"type": "json_object"}
         }
 
-        async with aiohttp.ClientSession() as session:
+        # Create session WITHOUT proxy for OpenRouter (direct connection)
+        connector = aiohttp.TCPConnector()
+        async with aiohttp.ClientSession(connector=connector) as session:
             async with session.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers=headers,
-                json=payload
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=30)
             ) as response:
                 if response.status == 429:
                     print(f"[OPENROUTER] Quota exceeded")
@@ -176,10 +179,11 @@ Return JSON with:
                 result = await response.json()
 
                 if response.status != 200:
-                    print(f"[OPENROUTER] Error: {result}")
+                    print(f"[OPENROUTER] Error {response.status}: {result}")
                     return None
 
                 raw_text = result['choices'][0]['message']['content'].strip()
+                print(f"[OPENROUTER] Response: {raw_text}")
                 data_dict = json.loads(raw_text)
                 validated_data = ReceiptData(**data_dict)
                 return validated_data.model_dump()
@@ -188,7 +192,8 @@ Return JSON with:
         error_msg = str(e)
         if "429" in error_msg or "quota" in error_msg.lower():
             return "QUOTA_EXCEEDED"
-        print(f"OpenRouter Text Extraction Error: {e}")
+        print(f"[ERROR] OpenRouter Text Extraction Error: {e}")
+        traceback.print_exc()
         return None
 
 
