@@ -134,7 +134,7 @@ async def extract_receipt_data(image_bytes: bytes):
 
 async def extract_text_data(text: str):
     """Parses text (e.g. bank SMS) using Gemini to extract merchant data."""
-    model_name = 'gemini-2.0-flash-exp'  # Use experimental free model
+    model_name = 'gemini-2.5-flash'  # Same model as receipts
     try:
         prompt = f"""Extract receipt data from this text (it might be a bank SMS or notification):
 "{text}"
