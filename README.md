@@ -15,23 +15,13 @@
 - `mapping_service.py` - сервис для работы со справочником компаний
 - `requirements.txt` - зависимости Python
 - `wsgi.py` - конфигурация для PythonAnywhere
+- `reset_webhook.py` - скрипт для настройки webhook
 - `.env` - переменные окружения (не в git)
 - `credentials.json` - Google Service Account (не в git)
 
 ## Команды бота:
 - `/start` - Главное меню
 - `/reload` - Обновить базу брендов из Google Sheets
-
-## Установка и развертывание:
-
-### Быстрый старт:
-См. `QUICKSTART.md`
-
-### Полная инструкция:
-См. `DEPLOY_INSTRUCTIONS.md`
-
-### Исправление проблем с кнопками:
-См. `FINAL_FIX_INSTRUCTIONS.md`
 
 ## Версия:
 2.0.0-inline-buttons
