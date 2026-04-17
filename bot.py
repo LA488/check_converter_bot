@@ -19,7 +19,7 @@ from aiogram.filters import Command
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from flask import Flask, request
@@ -210,10 +210,12 @@ def get_cancel_keyboard():
 
 def get_confirmation_keyboard():
     buttons = [
-        [KeyboardButton(text="✅ Все верно"), KeyboardButton(text="✏️ Редактировать")],
-        [KeyboardButton(text="❌ Отмена")]
+        [
+            InlineKeyboardButton(text="✅ Все верно", callback_data="confirm_save"),
+            InlineKeyboardButton(text="❌ Отмена", callback_data="confirm_cancel")
+        ]
     ]
-    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
@@ -311,8 +313,7 @@ async def handle_photo(message: types.Message, state: FSMContext):
 
         confirm_msg += f"\nВсе верно?"
 
-        await status_msg.edit_text(confirm_msg)
-        await message.answer("Выберите действие:", reply_markup=get_confirmation_keyboard())
+        await status_msg.edit_text(confirm_msg, reply_markup=get_confirmation_keyboard())
         await state.set_state(ConfirmState.waiting_confirmation)
 
     except Exception as e:
@@ -360,63 +361,56 @@ async def handle_search_query(message: types.Message, state: FSMContext):
     await message.answer(response, parse_mode="Markdown", reply_markup=get_main_keyboard())
     await state.clear()
 
+@dp.callback_query(F.data == "confirm_save")
+async def handle_confirm_save(callback: types.CallbackQuery, state: FSMContext):
+    """Handle save confirmation button."""
+    data = await state.get_data()
+
+    await callback.message.edit_text("📝 Сохраняю в таблицу...")
+
+    # Save to expenses sheet (worksheet 0)
+    success = await save_to_sheet(data)
+
+    # If new mapping, also add to mapping sheet
+    if data.get('is_new_mapping'):
+        try:
+            client = get_sheets_client()
+            if client:
+                sh = client.open_by_url(GOOGLE_SHEET_URL)
+                mapping_sheet = sh.worksheet("Sheet1")  # Mapping sheet
+                mapping_row = [
+                    data.get('brand_name', ''),
+                    data.get('alpha_name', ''),
+                    data.get('category', ''),
+                    data.get('subcategory', ''),
+                    datetime.now().strftime("%Y-%m-%d %H:%M")
+                ]
+                mapping_sheet.append_row(mapping_row)
+                mapping_service._load_data()
+        except Exception as e:
+            print(f"Error adding to mapping: {e}")
+
+    if success:
+        await callback.message.edit_text("✨ Запись добавлена!")
+        await callback.message.answer("Главное меню:", reply_markup=get_main_keyboard())
+    else:
+        await callback.message.edit_text("⚠️ Ошибка при записи в таблицу.")
+        await callback.message.answer("Главное меню:", reply_markup=get_main_keyboard())
+
+    await state.clear()
+    await callback.answer()
+
+@dp.callback_query(F.data == "confirm_cancel")
+async def handle_confirm_cancel(callback: types.CallbackQuery, state: FSMContext):
+    """Handle cancel button."""
+    await callback.message.edit_text("❌ Отменено")
+    await callback.message.answer("Главное меню:", reply_markup=get_main_keyboard())
+    await state.clear()
+    await callback.answer()
+
 @dp.message(F.text & ~F.starts_with("/"))
 async def handle_text_logic(message: types.Message, state: FSMContext):
     """Processes search queries or parses SMS text as receipts."""
-    current_state = await state.get_state()
-
-    # Handle confirmation buttons
-    if current_state == ConfirmState.waiting_confirmation:
-        if message.text == "✅ Все верно":
-            data = await state.get_data()
-            status_msg = await message.answer("📝 Сохраняю в таблицу...")
-
-            # Save to expenses sheet (worksheet 0)
-            success = await save_to_sheet(data)
-
-            # If new mapping, also add to mapping sheet
-            if data.get('is_new_mapping'):
-                try:
-                    client = get_sheets_client()
-                    if client:
-                        sh = client.open_by_url(GOOGLE_SHEET_URL)
-                        mapping_sheet = sh.worksheet("Sheet1")  # Mapping sheet
-                        mapping_row = [
-                            data.get('brand_name', ''),
-                            data.get('alpha_name', ''),
-                            data.get('category', ''),
-                            data.get('subcategory', ''),
-                            datetime.now().strftime("%Y-%m-%d %H:%M")
-                        ]
-                        mapping_sheet.append_row(mapping_row)
-                        mapping_service._load_data()
-                except Exception as e:
-                    print(f"Error adding to mapping: {e}")
-
-            if success:
-                await status_msg.edit_text("✨ Запись добавлена!", reply_markup=get_main_keyboard())
-            else:
-                await status_msg.edit_text("⚠️ Ошибка при записи в таблицу.", reply_markup=get_main_keyboard())
-
-            await state.clear()
-            return
-
-        elif message.text == "✏️ Редактировать":
-            await message.answer(
-                "Отправьте исправленные данные в формате:\n\n"
-                "Бренд: название\n"
-                "Юр.лицо: название\n"
-                "Категория: название\n"
-                "Подкатегория: название",
-                reply_markup=get_cancel_keyboard()
-            )
-            return
-
-        elif message.text == "❌ Отмена":
-            await state.clear()
-            await message.answer("Отменено.", reply_markup=get_main_keyboard())
-            return
-
     query = message.text.strip()
 
     # 1. First, try simple brand lookup
@@ -476,8 +470,7 @@ async def handle_text_logic(message: types.Message, state: FSMContext):
 
             confirm_msg += f"\nВсе верно?"
 
-            await status_msg.edit_text(confirm_msg)
-            await message.answer("Выберите действие:", reply_markup=get_confirmation_keyboard())
+            await status_msg.edit_text(confirm_msg, reply_markup=get_confirmation_keyboard())
             await state.set_state(ConfirmState.waiting_confirmation)
             return
 
