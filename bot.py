@@ -621,7 +621,69 @@ async def handle_text_logic(message: types.Message, state: FSMContext):
     query = message.text.strip()
     print(f"[TEXT HANDLER] Received text from user {message.from_user.id}: '{query[:50]}...'")
 
-    # 1. First, try simple brand lookup
+    # Check if text looks like SMS (contains keywords)
+    sms_keywords = ['xarid', 'покупка', 'karta', 'карта', 'miqdor', 'сумма', 'qoldiq', 'остаток']
+    is_sms = any(keyword in query.lower() for keyword in sms_keywords) or len(query) > 100
+
+    if is_sms:
+        # This looks like SMS - parse with AI directly
+        print(f"[SMS PARSE] Detected SMS format, skipping brand search")
+        status_msg = await message.answer("🤖 Распознаю SMS через AI...")
+
+        print(f"[SMS PARSE] Calling extract_text_data...")
+        extracted_data = await extract_text_data(query)
+        print(f"[SMS PARSE] extract_text_data returned: {extracted_data}")
+
+        if extracted_data == "QUOTA_EXCEEDED":
+            await status_msg.edit_text(
+                "⚠️ <b>Превышен лимит запросов к AI-модели</b>\n\n"
+                "Бесплатная квота API исчерпана. Лимиты обновляются ежедневно.\n\n"
+                "Поиск в базе данных результатов не дал. Попробуйте позже."
+            )
+            return
+
+        if extracted_data and extracted_data.get('alpha_name'):
+            alpha_name = extracted_data.get('alpha_name')
+            brand_name = extracted_data.get('brand_name')
+            category = extracted_data.get('category')
+            subcategory = extracted_data.get('subcategory', '')
+
+            # Check if mapping exists
+            mapping = mapping_service.find_mapping_by_legal_name(alpha_name)
+            if mapping:
+                brand_name = mapping.get('ИМЯ', brand_name)
+                category = mapping.get('КАТЕГОРИЯ', category)
+                subcategory = mapping.get('ПОДКАТЕГОРИЯ', subcategory)
+
+            # Store for confirmation
+            await state.update_data(
+                alpha_name=alpha_name,
+                brand_name=brand_name,
+                category=category,
+                subcategory=subcategory,
+                is_new_mapping=not mapping
+            )
+
+            confirm_msg = f"✨ СМС распознано:\n\n"
+            confirm_msg += f"🏢 Юр.лицо: {alpha_name}\n"
+            confirm_msg += f"🏷 Бренд: {brand_name}\n"
+            confirm_msg += f"📁 Категория: {category}\n"
+            if subcategory:
+                confirm_msg += f"🔹 Подкатегория: {subcategory}\n"
+
+            if not mapping:
+                confirm_msg += f"\n⚠️ Новая компания (будет добавлена в справочник)\n"
+
+            confirm_msg += f"\nВсе верно?"
+
+            await status_msg.edit_text(confirm_msg, reply_markup=get_confirmation_keyboard())
+            await state.set_state(ConfirmState.waiting_confirmation)
+            return
+        else:
+            await status_msg.edit_text("❌ Не удалось распознать данные из SMS. Попробуйте еще раз.")
+            return
+
+    # Not SMS - try brand search
     results = mapping_service.search_by_brand_name(query)
     print(f"[TEXT HANDLER] Brand search results: {len(results)} found")
     if results:
@@ -636,14 +698,8 @@ async def handle_text_logic(message: types.Message, state: FSMContext):
         await message.answer(response, parse_mode="Markdown", reply_markup=get_main_keyboard())
         return
 
-    # 2. If length > 20, assume it's an SMS/Notification and try AI parsing
-    if len(query) > 20:
-        print(f"[SMS PARSE] Starting SMS parsing for user {message.from_user.id}, text length: {len(query)}")
-        status_msg = await message.answer("🤖 Текст не найден в базе. Пробую распознать как СМС...")
-
-        print(f"[SMS PARSE] Calling extract_text_data...")
-        extracted_data = await extract_text_data(query)
-        print(f"[SMS PARSE] extract_text_data returned: {extracted_data}")
+    # Nothing found
+    await message.answer("🔍 Ничего не найдено. Выберите режим поиска кнопками ниже:", reply_markup=get_main_keyboard())
 
         if extracted_data == "QUOTA_EXCEEDED":
             print(f"[SMS PARSE] Quota exceeded")
