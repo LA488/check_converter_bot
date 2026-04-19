@@ -259,7 +259,7 @@ Return JSON with:
 
 
 async def save_to_sheet(data: dict):
-    """Appends extracted data to Google Sheets (Worksheet 0)."""
+    """Appends extracted data to Google Sheets (Worksheet 0) after checking for duplicates."""
     client = get_sheets_client()
     if not client:
         return False
@@ -274,6 +274,31 @@ async def save_to_sheet(data: dict):
         category = data.get('category', '')
         subcategory = data.get('subcategory', '')
         timestamp = get_uz_time()
+
+        # Check for duplicates: same brand, alpha_name, and recent timestamp (within 5 minutes)
+        all_records = sheet.get_all_values()
+        if len(all_records) > 1:  # Skip header row
+            from datetime import datetime, timedelta
+            current_time = datetime.strptime(timestamp, "%Y-%m-%d %H:%M")
+
+            for record in all_records[1:]:  # Skip header
+                if len(record) >= 5:
+                    existing_brand = record[0]
+                    existing_alpha = record[1]
+                    existing_timestamp = record[4]
+
+                    # Check if same brand and alpha_name
+                    if existing_brand == brand_name and existing_alpha == alpha_name:
+                        try:
+                            existing_time = datetime.strptime(existing_timestamp, "%Y-%m-%d %H:%M")
+                            time_diff = abs((current_time - existing_time).total_seconds())
+
+                            # If duplicate within 5 minutes, skip
+                            if time_diff < 300:  # 5 minutes = 300 seconds
+                                print(f"[SAVE] Duplicate detected: {brand_name} at {existing_timestamp}, skipping")
+                                return "DUPLICATE"
+                        except ValueError:
+                            continue  # Skip if timestamp format is invalid
 
         row = [brand_name, alpha_name, category, subcategory, timestamp]
 
@@ -568,6 +593,9 @@ async def handle_confirm_save(callback: types.CallbackQuery, state: FSMContext):
 
     if success:
         await callback.message.edit_text("✨ Запись добавлена!")
+        await callback.message.answer("Главное меню:", reply_markup=get_main_keyboard())
+    elif success == "DUPLICATE":
+        await callback.message.edit_text("⚠️ Эта запись уже существует в таблице (дубликат в течение 5 минут).")
         await callback.message.answer("Главное меню:", reply_markup=get_main_keyboard())
     else:
         await callback.message.edit_text("⚠️ Ошибка при записи в таблицу.")
