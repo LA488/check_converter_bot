@@ -5,7 +5,7 @@ services:
     region: frankfurt
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn -w 1 -b 0.0.0.0:$PORT bot:app
+    startCommand: python start.py
     envVars:
       - key: BOT_TOKEN
         sync: false
