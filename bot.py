@@ -190,8 +190,14 @@ Return JSON with:
                             response_format={"type": "json_object"}
                         )
                         raw_text = response.choices[0].message.content.strip()
+                        # Remove markdown code blocks if present
+                        if raw_text.startswith("```"):
+                            raw_text = raw_text.split("```")[1]
+                            if raw_text.startswith("json"):
+                                raw_text = raw_text[4:]
+                            raw_text = raw_text.strip()
                         print(f"[OPENROUTER SMS] Success with model: {model}")
-                        print(f"[OPENROUTER SMS] Response: {raw_text}")
+                        print(f"[OPENROUTER SMS] Cleaned response: {raw_text}")
                         break
                     except Exception as model_error:
                         last_error = model_error
