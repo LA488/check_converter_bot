@@ -18,13 +18,13 @@ class MappingService:
         try:
             client = gspread.service_account(filename=self.credentials_file)
             sh = client.open_by_url(self.sheet_url)
-            
+
             # Try to find a sheet with mapping, or use the first one
             try:
                 worksheet = sh.worksheet("Sheet1") # As seen in screenshot
             except:
                 worksheet = sh.get_worksheet(0)
-            
+
             # Expected columns: ИМЯ, АЛЬФА ИМЯ, КАТЕГОРИЯ, ПОДКАТЕГОРИЯ
             raw_data = worksheet.get_all_values()
             if len(raw_data) > 1:
@@ -32,14 +32,16 @@ class MappingService:
                 data = [dict(zip(headers, row)) for row in raw_data[1:]]
             else:
                 data = []
-            
+
             self.mapping_data = data
-            
+
             # Pre-populate lists for fuzzy matching
             self.legal_names = [str(row.get('АЛЬФА ИМЯ', '')).strip() for row in data if row.get('АЛЬФА ИМЯ')]
             self.brand_names = [str(row.get('ИМЯ', '')).strip() for row in data if row.get('ИМЯ')]
-            
+
             print(f"MappingService: Loaded {len(self.mapping_data)} records.")
+            print(f"MappingService: Sample brands: {self.brand_names[:10]}")
+            print(f"MappingService: Available columns: {list(data[0].keys()) if data else 'No data'}")
         except Exception as e:
             print(f"MappingService Error loading data: {e}")
 
@@ -67,8 +69,8 @@ class MappingService:
                         return row
         return None
 
-    def search_by_brand_name(self, query: str, threshold: int = 70) -> List[Dict]:
-        """Wrapper for search_by_field to maintain compatibility."""
+    def search_by_brand_name(self, query: str, threshold: int = 60) -> List[Dict]:
+        """Wrapper for search_by_field to maintain compatibility. Lower threshold for better results."""
         return self.search_by_field('ИМЯ', query, threshold)
 
     def search_by_field(self, field_name: str, query: str, threshold: int = 70) -> List[Dict]:
