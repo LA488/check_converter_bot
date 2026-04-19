@@ -156,7 +156,7 @@ async def extract_receipt_data(image_bytes: bytes):
         return None
 
 async def extract_text_data(text: str):
-    """Parses text (e.g. bank SMS) using OpenRouter to extract merchant data."""
+    """Parses text (e.g. bank SMS) using AI to extract merchant data."""
     try:
         prompt = f"""Extract receipt data from this text (it might be a bank SMS or notification):
 "{text}"
@@ -167,20 +167,50 @@ Return JSON with:
 - category: Business category in Russian.
 - subcategory: Business subcategory in Russian."""
 
-        # Always use OpenRouter for SMS text parsing
-        if not OPENROUTER_API_KEY:
-            print("[ERROR] OpenRouter API key required for SMS parsing")
-            return None
-
-        response = await openrouter_client.chat.completions.create(
-            model="meta-llama/llama-3.2-3b-instruct:free",
-            messages=[
-                {"role": "user", "content": prompt}
-            ],
-            response_format={"type": "json_object"}
-        )
-        raw_text = response.choices[0].message.content.strip()
-        print(f"[OPENROUTER SMS] Response: {raw_text}")
+        # Try OpenRouter first, fallback to Gemini if quota exceeded
+        if OPENROUTER_API_KEY and openrouter_client:
+            try:
+                response = await openrouter_client.chat.completions.create(
+                    model="meta-llama/llama-3.2-3b-instruct:free",
+                    messages=[
+                        {"role": "user", "content": prompt}
+                    ],
+                    response_format={"type": "json_object"}
+                )
+                raw_text = response.choices[0].message.content.strip()
+                print(f"[OPENROUTER SMS] Response: {raw_text}")
+            except Exception as or_error:
+                print(f"[OPENROUTER SMS] Error: {or_error}, falling back to Gemini")
+                # Fallback to Gemini
+                if not GOOGLE_AI_STUDIO_KEY:
+                    raise or_error
+                temp_gemini = genai.Client(api_key=GOOGLE_AI_STUDIO_KEY)
+                response = await temp_gemini.aio.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=prompt,
+                    config=genai.types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_json_schema=ReceiptData.model_json_schema()
+                    )
+                )
+                raw_text = response.text.strip()
+                print(f"[GEMINI SMS FALLBACK] Response: {raw_text}")
+        else:
+            # Use Gemini directly
+            if not GOOGLE_AI_STUDIO_KEY:
+                print("[ERROR] No AI provider available for SMS parsing")
+                return None
+            temp_gemini = genai.Client(api_key=GOOGLE_AI_STUDIO_KEY)
+            response = await temp_gemini.aio.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+                config=genai.types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_json_schema=ReceiptData.model_json_schema()
+                )
+            )
+            raw_text = response.text.strip()
+            print(f"[GEMINI SMS] Response: {raw_text}")
 
         data_dict = json.loads(raw_text)
         validated_data = ReceiptData(**data_dict)
@@ -188,9 +218,9 @@ Return JSON with:
     except Exception as e:
         error_msg = str(e)
         if "429" in error_msg or "quota" in error_msg.lower():
-            print(f"[OPENROUTER SMS] Quota exceeded")
+            print(f"[SMS PARSE] Quota exceeded")
             return "QUOTA_EXCEEDED"
-        print(f"[ERROR] OpenRouter Text Extraction Error: {e}")
+        print(f"[ERROR] SMS Text Extraction Error: {e}")
         traceback.print_exc()
         return None
 
