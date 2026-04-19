@@ -118,7 +118,7 @@ def get_sheets_client():
         return None
 
 async def extract_receipt_data(image_bytes: bytes):
-    """Sends image to AI for data extraction with quota handling."""
+    """Sends image to Gemini for data extraction (vision required)."""
     try:
         img = Image.open(BytesIO(image_bytes))
 
@@ -132,34 +132,22 @@ async def extract_receipt_data(image_bytes: bytes):
         Return JSON with these exact fields.
         """
 
-        if USE_OPENROUTER:
-            # OpenRouter doesn't support vision with free models, fallback to Gemini if available
-            if not gemini_client and GOOGLE_AI_STUDIO_KEY:
-                # Initialize Gemini for vision tasks
-                temp_gemini = genai.Client(api_key=GOOGLE_AI_STUDIO_KEY)
-                response = await temp_gemini.aio.models.generate_content(
-                    model='gemini-2.5-flash',
-                    contents=[img, prompt],
-                    config=genai.types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        response_json_schema=ReceiptData.model_json_schema()
-                    )
-                )
-                raw_text = response.text.strip()
-            else:
-                print("ERROR: OpenRouter free models don't support vision. Need Gemini API key.")
-                return None
-        else:
-            # Use Gemini
-            response = await gemini_client.aio.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=[img, prompt],
-                config=genai.types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_json_schema=ReceiptData.model_json_schema()
-                )
+        # Always use Gemini for vision (receipts)
+        if not GOOGLE_AI_STUDIO_KEY:
+            print("ERROR: Gemini API key required for receipt recognition")
+            return None
+
+        temp_gemini = genai.Client(api_key=GOOGLE_AI_STUDIO_KEY)
+        response = await temp_gemini.aio.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[img, prompt],
+            config=genai.types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_json_schema=ReceiptData.model_json_schema()
             )
-            raw_text = response.text.strip()
+        )
+        raw_text = response.text.strip()
+        print(f"[GEMINI RECEIPT] Response received")
 
         data_dict = json.loads(raw_text)
         validated_data = ReceiptData(**data_dict)
@@ -167,13 +155,13 @@ async def extract_receipt_data(image_bytes: bytes):
     except Exception as e:
         error_msg = str(e)
         if "429" in error_msg or "quota" in error_msg.lower():
-            print(f"CRITICAL: Quota exceeded")
+            print(f"CRITICAL: Gemini quota exceeded")
             return "QUOTA_EXCEEDED"
-        print(f"AI Extraction Error: {e}")
+        print(f"Gemini Receipt Error: {e}")
         return None
 
 async def extract_text_data(text: str):
-    """Parses text (e.g. bank SMS) using AI to extract merchant data."""
+    """Parses text (e.g. bank SMS) using OpenRouter to extract merchant data."""
     try:
         prompt = f"""Extract receipt data from this text (it might be a bank SMS or notification):
 "{text}"
@@ -184,29 +172,20 @@ Return JSON with:
 - category: Business category in Russian.
 - subcategory: Business subcategory in Russian."""
 
-        if USE_OPENROUTER:
-            # Use OpenRouter with free model
-            response = await openrouter_client.chat.completions.create(
-                model="meta-llama/llama-3.2-3b-instruct:free",  # Free model
-                messages=[
-                    {"role": "user", "content": prompt}
-                ],
-                response_format={"type": "json_object"}
-            )
-            raw_text = response.choices[0].message.content.strip()
-            print(f"[OPENROUTER SMS] Response: {raw_text}")
-        else:
-            # Use Gemini
-            response = await gemini_client.aio.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=prompt,
-                config=genai.types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_json_schema=ReceiptData.model_json_schema()
-                )
-            )
-            raw_text = response.text.strip()
-            print(f"[GEMINI SMS] Response: {raw_text}")
+        # Always use OpenRouter for SMS text parsing
+        if not OPENROUTER_API_KEY:
+            print("[ERROR] OpenRouter API key required for SMS parsing")
+            return None
+
+        response = await openrouter_client.chat.completions.create(
+            model="meta-llama/llama-3.2-3b-instruct:free",
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            response_format={"type": "json_object"}
+        )
+        raw_text = response.choices[0].message.content.strip()
+        print(f"[OPENROUTER SMS] Response: {raw_text}")
 
         data_dict = json.loads(raw_text)
         validated_data = ReceiptData(**data_dict)
@@ -214,9 +193,9 @@ Return JSON with:
     except Exception as e:
         error_msg = str(e)
         if "429" in error_msg or "quota" in error_msg.lower():
-            print(f"[AI SMS] Quota exceeded")
+            print(f"[OPENROUTER SMS] Quota exceeded")
             return "QUOTA_EXCEEDED"
-        print(f"[ERROR] AI Text Extraction Error: {e}")
+        print(f"[ERROR] OpenRouter Text Extraction Error: {e}")
         traceback.print_exc()
         return None
 
