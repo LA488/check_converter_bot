@@ -766,6 +766,11 @@ if __name__ == "__main__":
     print(f"📊 Registered message handlers: {len([h for h in dp.message.handlers if h])}")
     print(f"📊 Registered callback handlers: {len([h for h in dp.callback_query.handlers if h])}")
 
+    # Debug: print environment variables
+    print(f"🔍 DEBUG: PORT={os.environ.get('PORT')}")
+    print(f"🔍 DEBUG: RENDER_EXTERNAL_URL={os.environ.get('RENDER_EXTERNAL_URL')}")
+    print(f"🔍 DEBUG: PYTHONANYWHERE_DOMAIN={os.environ.get('PYTHONANYWHERE_DOMAIN')}")
+
     # Check deployment environment
     # Render sets PORT env variable automatically
     is_render = os.environ.get('PORT') is not None
