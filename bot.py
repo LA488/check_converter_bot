@@ -171,7 +171,7 @@ Return JSON with:
         if OPENROUTER_API_KEY and openrouter_client:
             try:
                 response = await openrouter_client.chat.completions.create(
-                    model="meta-llama/llama-3.2-3b-instruct:free",
+                    model="mistralai/mistral-7b-instruct:free",  # Alternative free model
                     messages=[
                         {"role": "user", "content": prompt}
                     ],
