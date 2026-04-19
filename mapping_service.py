@@ -69,8 +69,8 @@ class MappingService:
                         return row
         return None
 
-    def search_by_brand_name(self, query: str, threshold: int = 60) -> List[Dict]:
-        """Wrapper for search_by_field to maintain compatibility. Lower threshold for better results."""
+    def search_by_brand_name(self, query: str, threshold: int = 70) -> List[Dict]:
+        """Wrapper for search_by_field to maintain compatibility. Threshold 70 for accurate results."""
         return self.search_by_field('ИМЯ', query, threshold)
 
     def search_by_field(self, field_name: str, query: str, threshold: int = 70) -> List[Dict]:
