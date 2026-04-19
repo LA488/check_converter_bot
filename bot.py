@@ -62,8 +62,10 @@ if GOOGLE_SERVICE_ACCOUNT_FILE and not os.path.isabs(GOOGLE_SERVICE_ACCOUNT_FILE
     GOOGLE_SERVICE_ACCOUNT_FILE = os.path.join(BASE_DIR, GOOGLE_SERVICE_ACCOUNT_FILE)
 
 # Construct Webhook URL
-if RENDER_DOMAIN:
-    WEBHOOK_URL = f"https://{RENDER_DOMAIN}/{WEBHOOK_SECRET}"
+# Render provides RENDER_EXTERNAL_URL or we can use RENDER_DOMAIN if set manually
+render_url = os.getenv("RENDER_EXTERNAL_URL") or (f"https://{RENDER_DOMAIN}" if RENDER_DOMAIN else None)
+if render_url:
+    WEBHOOK_URL = f"{render_url}/{WEBHOOK_SECRET}"
 elif os.getenv("PYTHONANYWHERE_USERNAME"):
     WEBHOOK_URL = f"https://{os.getenv('PYTHONANYWHERE_USERNAME')}.pythonanywhere.com/{WEBHOOK_SECRET}"
 else:
@@ -765,12 +767,17 @@ if __name__ == "__main__":
     print(f"📊 Registered callback handlers: {len([h for h in dp.callback_query.handlers if h])}")
 
     # Check deployment environment
-    if os.environ.get('RENDER_DOMAIN') or os.environ.get('PYTHONANYWHERE_DOMAIN'):
+    # Render sets PORT env variable automatically
+    is_render = os.environ.get('PORT') is not None
+    is_pythonanywhere = os.environ.get('PYTHONANYWHERE_DOMAIN') is not None
+
+    if is_render or is_pythonanywhere:
         # Production: Webhook mode
-        print(f"Running in WEBHOOK mode on {'Render' if os.environ.get('RENDER_DOMAIN') else 'PythonAnywhere'}")
+        platform = 'Render' if is_render else 'PythonAnywhere'
+        print(f"Running in WEBHOOK mode on {platform}")
         asyncio.run(on_startup())
-        # Flask app will be run by the hosting platform
-        if os.environ.get('RENDER_DOMAIN'):
+
+        if is_render:
             # Render needs us to run the Flask app
             port = int(os.environ.get('PORT', 10000))
             print(f"Starting Flask on port {port}")
