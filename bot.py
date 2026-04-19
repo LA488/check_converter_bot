@@ -301,6 +301,25 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
     await message.answer(welcome_text, reply_markup=get_main_keyboard())
 
+@dp.message(Command("help"))
+async def cmd_help(message: types.Message):
+    help_text = (
+        "❓ <b>Как пользоваться ботом:</b>\n\n"
+        "📸 <b>Фото чека</b> - отправьте фото, бот распознает через Gemini AI\n"
+        "💬 <b>SMS от банка</b> - отправьте текст, бот распознает через AI\n"
+        "🔍 <b>Поиск</b> - используйте кнопки для поиска по брендам, категориям\n"
+        "📊 <b>Данные</b> - все сохраняется в Google Таблицу\n\n"
+        "/start - Главное меню\n"
+        "/reload - Обновить базу брендов\n"
+        "/cancel - Отменить текущее действие"
+    )
+    await message.answer(help_text)
+
+@dp.message(Command("cancel"))
+async def cmd_cancel_command(message: types.Message, state: FSMContext):
+    await state.clear()
+    await message.answer("❌ Действие отменено", reply_markup=get_main_keyboard())
+
 @dp.message(F.text == "❌ Отмена")
 async def cmd_cancel(message: types.Message, state: FSMContext):
     await state.clear()
