@@ -701,56 +701,6 @@ async def handle_text_logic(message: types.Message, state: FSMContext):
     # Nothing found
     await message.answer("🔍 Ничего не найдено. Выберите режим поиска кнопками ниже:", reply_markup=get_main_keyboard())
 
-        if extracted_data == "QUOTA_EXCEEDED":
-            print(f"[SMS PARSE] Quota exceeded")
-            await status_msg.edit_text(
-                "⚠️ <b>Превышен лимит запросов к AI-модели</b>\n\n"
-                "Бесплатная квота Gemini API исчерпана. Лимиты обновляются ежедневно в полночь по тихоокеанскому времени (Pacific Time).\n\n"
-                "Поиск в базе данных результатов не дал. Попробуйте позже или обратитесь к администратору."
-            )
-            return
-
-        if extracted_data and extracted_data.get('alpha_name'):
-            alpha_name = extracted_data.get('alpha_name')
-            brand_name = extracted_data.get('brand_name')
-            category = extracted_data.get('category')
-            subcategory = extracted_data.get('subcategory', '')
-
-            # Check if mapping exists
-            mapping = mapping_service.find_mapping_by_legal_name(alpha_name)
-            if mapping:
-                brand_name = mapping.get('ИМЯ', brand_name)
-                category = mapping.get('КАТЕГОРИЯ', category)
-                subcategory = mapping.get('ПОДКАТЕГОРИЯ', subcategory)
-
-            # Store for confirmation
-            await state.update_data(
-                alpha_name=alpha_name,
-                brand_name=brand_name,
-                category=category,
-                subcategory=subcategory,
-                is_new_mapping=not mapping
-            )
-
-            confirm_msg = f"✨ СМС распознано:\n\n"
-            confirm_msg += f"🏢 Юр.лицо: {alpha_name}\n"
-            confirm_msg += f"🏷 Бренд: {brand_name}\n"
-            confirm_msg += f"📁 Категория: {category}\n"
-            if subcategory:
-                confirm_msg += f"🔹 Подкатегория: {subcategory}\n"
-
-            if not mapping:
-                confirm_msg += f"\n⚠️ Новая компания (будет добавлена в справочник)\n"
-
-            confirm_msg += f"\nВсе верно?"
-
-            await status_msg.edit_text(confirm_msg, reply_markup=get_confirmation_keyboard())
-            await state.set_state(ConfirmState.waiting_confirmation)
-            return
-
-    # 3. Fallback
-    await message.answer("🔍 Ничего не найдено. Выберите режим поиска кнопками ниже:", reply_markup=get_main_keyboard())
-
 
 @dp.callback_query()
 async def handle_any_callback(callback: types.CallbackQuery):

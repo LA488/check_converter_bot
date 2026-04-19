@@ -114,7 +114,8 @@ class MappingService:
         )
 
         # Combine: exact matches first, then fuzzy
-        all_matches = exact_matches + fuzzy_matches
+        # fuzzy_matches returns (value, score, index) - we only need (value, score)
+        all_matches = exact_matches + [(val, score) for val, score, idx in fuzzy_matches]
         # Remove duplicates, keep highest score
         seen = {}
         for match_val, score in all_matches:
