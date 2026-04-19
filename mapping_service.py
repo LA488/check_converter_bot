@@ -74,24 +74,32 @@ class MappingService:
     def search_by_field(self, field_name: str, query: str, threshold: int = 70) -> List[Dict]:
         """Generic search for all records associated with a field value."""
         if not query or not self.mapping_data:
+            print(f"[SEARCH] Empty query or no data. Query: '{query}', Data count: {len(self.mapping_data)}")
             return []
-        
+
         # Get all unique values for the specified field
         field_values = [str(row.get(field_name, '')).strip() for row in self.mapping_data if row.get(field_name)]
+        print(f"[SEARCH] Field '{field_name}': found {len(field_values)} values")
         if not field_values:
+            print(f"[SEARCH] No values found for field '{field_name}'")
+            print(f"[SEARCH] Available fields in first row: {list(self.mapping_data[0].keys()) if self.mapping_data else 'No data'}")
             return []
 
         # Find best matches in the specified field
         matches = process.extract(
-            query, 
-            field_values, 
-            limit=10, 
+            query,
+            field_values,
+            limit=10,
             scorer=fuzz.WRatio
         )
-        
+
+        print(f"[SEARCH] Query '{query}' found {len(matches)} matches")
+        if matches:
+            print(f"[SEARCH] Top 3 matches: {[(m[0], m[1]) for m in matches[:3]]}")
+
         results = []
         seen_matches = set()
-        
+
         for match_val, score, index in matches:
             if score >= threshold and match_val not in seen_matches:
                 seen_matches.add(match_val)
@@ -99,5 +107,6 @@ class MappingService:
                 for row in self.mapping_data:
                     if str(row.get(field_name, '')).strip() == match_val:
                         results.append(row)
-        
+
+        print(f"[SEARCH] Returning {len(results)} results (threshold: {threshold})")
         return results
