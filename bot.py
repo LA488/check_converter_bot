@@ -191,7 +191,12 @@ Return JSON with:
                         )
                         raw_text = response.choices[0].message.content.strip()
                         # Remove markdown code blocks if present
-                        if raw_text.startswith("```"):
+                        if "```json" in raw_text:
+                            # Extract only the JSON part between ```json and ```
+                            start = raw_text.find("```json") + 7
+                            end = raw_text.find("```", start)
+                            raw_text = raw_text[start:end].strip()
+                        elif raw_text.startswith("```"):
                             raw_text = raw_text.split("```")[1]
                             if raw_text.startswith("json"):
                                 raw_text = raw_text[4:]
