@@ -596,9 +596,11 @@ async def handle_manual_edit(message: types.Message, state: FSMContext):
 async def handle_text_logic(message: types.Message, state: FSMContext):
     """Processes search queries or parses SMS text as receipts."""
     query = message.text.strip()
+    print(f"[TEXT HANDLER] Received text from user {message.from_user.id}: '{query[:50]}...'")
 
     # 1. First, try simple brand lookup
     results = mapping_service.search_by_brand_name(query)
+    print(f"[TEXT HANDLER] Brand search results: {len(results)} found")
     if results:
         response = f"🔍 **Найдено в базе:**\n\n"
         for row in results:
