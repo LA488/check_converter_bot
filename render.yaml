@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: tg-bot-check-converter
+    env: python
+    region: frankfurt
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: GOOGLE_AI_STUDIO_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: GOOGLE_SHEET_URL
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_FILE
+        value: credentials.json
+      - key: RENDER_DOMAIN
+        sync: false
+      - key: WEBHOOK_SECRET
+        generateValue: true
+      - key: PYTHON_VERSION
+        value: 3.12.0

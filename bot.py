@@ -10,6 +10,7 @@ from typing import Optional
 
 import gspread
 from google import genai
+from openai import AsyncOpenAI
 from PIL import Image
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.enums import ParseMode
@@ -27,7 +28,7 @@ from flask import Flask, request
 from mapping_service import MappingService
 
 # Bot version for tracking deployments
-BOT_VERSION = "2.0.0-inline-buttons"
+BOT_VERSION = "2.1.0-openrouter"
 print(f"🤖 Bot version: {BOT_VERSION}")
 
 # Timezone for Uzbekistan (UTC+5)
@@ -43,11 +44,17 @@ load_dotenv(env_path)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GOOGLE_AI_STUDIO_KEY = os.getenv("GOOGLE_AI_STUDIO_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 GOOGLE_SHEET_URL = os.getenv("GOOGLE_SHEET_URL")
 GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")
-PA_USERNAME = os.getenv("PYTHONANYWHERE_USERNAME")
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
+RENDER_DOMAIN = os.getenv("RENDER_DOMAIN")
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "mysecrettoken123")
 PROXY_URL = "proxy.server:3128"
+
+# Determine which AI provider to use
+USE_OPENROUTER = bool(OPENROUTER_API_KEY and not os.environ.get('PYTHONANYWHERE_DOMAIN'))
+AI_PROVIDER = "OpenRouter" if USE_OPENROUTER else "Gemini"
+print(f"🤖 AI Provider: {AI_PROVIDER}")
 
 # Resolve credentials file path to absolute path safely
 BASE_DIR = os.path.dirname(__file__)
@@ -55,7 +62,12 @@ if GOOGLE_SERVICE_ACCOUNT_FILE and not os.path.isabs(GOOGLE_SERVICE_ACCOUNT_FILE
     GOOGLE_SERVICE_ACCOUNT_FILE = os.path.join(BASE_DIR, GOOGLE_SERVICE_ACCOUNT_FILE)
 
 # Construct Webhook URL
-WEBHOOK_URL = f"https://{PA_USERNAME}.pythonanywhere.com/{WEBHOOK_SECRET}"
+if RENDER_DOMAIN:
+    WEBHOOK_URL = f"https://{RENDER_DOMAIN}/{WEBHOOK_SECRET}"
+elif os.getenv("PYTHONANYWHERE_USERNAME"):
+    WEBHOOK_URL = f"https://{os.getenv('PYTHONANYWHERE_USERNAME')}.pythonanywhere.com/{WEBHOOK_SECRET}"
+else:
+    WEBHOOK_URL = None  # Local development
 
 # Bot and Dispatcher setup
 # We will initialize Bot with a proxy session if on PythonAnywhere to avoid global loop issues
@@ -69,9 +81,16 @@ bot = get_bot()
 dp = Dispatcher(storage=MemoryStorage())
 app = Flask(__name__)
 
-# Initialize Gemini Client
-# The SDK automatically uses HTTP_PROXY/HTTPS_PROXY environment variables
-gemini_client = genai.Client(api_key=GOOGLE_AI_STUDIO_KEY)
+# Initialize AI Clients
+if USE_OPENROUTER:
+    openrouter_client = AsyncOpenAI(
+        api_key=OPENROUTER_API_KEY,
+        base_url="https://openrouter.ai/api/v1"
+    )
+    gemini_client = None
+else:
+    gemini_client = genai.Client(api_key=GOOGLE_AI_STUDIO_KEY)
+    openrouter_client = None
 
 # Initialize Mapping Service
 mapping_service = MappingService(GOOGLE_SHEET_URL, GOOGLE_SERVICE_ACCOUNT_FILE)
@@ -97,44 +116,62 @@ def get_sheets_client():
         return None
 
 async def extract_receipt_data(image_bytes: bytes):
-    """Sends image to Google Gemini for data extraction with quota handling."""
-    model_name = 'gemini-2.5-flash' # Correct version for 2026
+    """Sends image to AI for data extraction with quota handling."""
     try:
-
         img = Image.open(BytesIO(image_bytes))
-        
+
         prompt = """
         Analyze this receipt. Extract the following information:
         - alpha_name: The EXACT legal name of the merchant (found at top or bottom, often contains MCHJ, OOO, etc.).
         - brand_name: A short, clean commercial brand name derived from the receipt (e.g. "Proweb", "Korzinka").
         - category: A suitable business category in Russian (e.g. "Учебный центр").
         - subcategory: A suitable business subcategory in Russian (e.g. "ИТ-курсы").
+
+        Return JSON with these exact fields.
         """
 
-        response = await gemini_client.aio.models.generate_content(
-            model=model_name,
-            contents=[img, prompt],
-            config=genai.types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_json_schema=ReceiptData.model_json_schema()
+        if USE_OPENROUTER:
+            # OpenRouter doesn't support vision with free models, fallback to Gemini if available
+            if not gemini_client and GOOGLE_AI_STUDIO_KEY:
+                # Initialize Gemini for vision tasks
+                temp_gemini = genai.Client(api_key=GOOGLE_AI_STUDIO_KEY)
+                response = await temp_gemini.aio.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=[img, prompt],
+                    config=genai.types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_json_schema=ReceiptData.model_json_schema()
+                    )
+                )
+                raw_text = response.text.strip()
+            else:
+                print("ERROR: OpenRouter free models don't support vision. Need Gemini API key.")
+                return None
+        else:
+            # Use Gemini
+            response = await gemini_client.aio.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=[img, prompt],
+                config=genai.types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_json_schema=ReceiptData.model_json_schema()
+                )
             )
-        )
-        
-        raw_text = response.text.strip()
+            raw_text = response.text.strip()
+
         data_dict = json.loads(raw_text)
         validated_data = ReceiptData(**data_dict)
         return validated_data.model_dump()
     except Exception as e:
         error_msg = str(e)
         if "429" in error_msg or "quota" in error_msg.lower():
-            print(f"CRITICAL: Quota exceeded for {model_name}")
+            print(f"CRITICAL: Quota exceeded")
             return "QUOTA_EXCEEDED"
-        print(f"Gemini Extraction Error: {e}")
+        print(f"AI Extraction Error: {e}")
         return None
 
 async def extract_text_data(text: str):
-    """Parses text (e.g. bank SMS) using Gemini to extract merchant data."""
-    model_name = 'gemini-2.5-flash'  # Same model as receipts
+    """Parses text (e.g. bank SMS) using AI to extract merchant data."""
     try:
         prompt = f"""Extract receipt data from this text (it might be a bank SMS or notification):
 "{text}"
@@ -145,26 +182,39 @@ Return JSON with:
 - category: Business category in Russian.
 - subcategory: Business subcategory in Russian."""
 
-        response = await gemini_client.aio.models.generate_content(
-            model=model_name,
-            contents=prompt,
-            config=genai.types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_json_schema=ReceiptData.model_json_schema()
+        if USE_OPENROUTER:
+            # Use OpenRouter with free model
+            response = await openrouter_client.chat.completions.create(
+                model="google/gemini-2.0-flash-exp:free",
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                response_format={"type": "json_object"}
             )
-        )
+            raw_text = response.choices[0].message.content.strip()
+            print(f"[OPENROUTER SMS] Response: {raw_text}")
+        else:
+            # Use Gemini
+            response = await gemini_client.aio.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+                config=genai.types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_json_schema=ReceiptData.model_json_schema()
+                )
+            )
+            raw_text = response.text.strip()
+            print(f"[GEMINI SMS] Response: {raw_text}")
 
-        raw_text = response.text.strip()
-        print(f"[GEMINI SMS] Response: {raw_text}")
         data_dict = json.loads(raw_text)
         validated_data = ReceiptData(**data_dict)
         return validated_data.model_dump()
     except Exception as e:
         error_msg = str(e)
         if "429" in error_msg or "quota" in error_msg.lower():
-            print(f"[GEMINI SMS] Quota exceeded")
+            print(f"[AI SMS] Quota exceeded")
             return "QUOTA_EXCEEDED"
-        print(f"[ERROR] Gemini Text Extraction Error: {e}")
+        print(f"[ERROR] AI Text Extraction Error: {e}")
         traceback.print_exc()
         return None
 
@@ -669,6 +719,10 @@ def telegram_webhook():
 
 async def on_startup():
     """Set webhook and bot menu with retries to handle proxy instability."""
+    if not WEBHOOK_URL:
+        print("⚠️ No webhook URL configured, skipping webhook setup")
+        return
+
     max_retries = 5
     for attempt in range(1, max_retries + 1):
         try:
@@ -680,16 +734,16 @@ async def on_startup():
                 types.BotCommand(command="cancel", description="❌ Отменить поиск")
             ]
             await bot.set_my_commands(commands)
-            
+
             print(f"Setting webhook to: {WEBHOOK_URL}")
-            await asyncio.sleep(2) # Increased delay for stability
-            await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True)
+            await asyncio.sleep(2)
+            await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True, allowed_updates=["message", "callback_query"])
             print("✅ Webhook and Menu set successfully!")
-            return # Success! Exit the function
+            return
         except Exception as e:
             print(f"⚠️ Attempt {attempt} failed: {e}")
             if attempt < max_retries:
-                wait_time = attempt * 5 # Exponential backoff
+                wait_time = attempt * 5
                 print(f"Waiting {wait_time} seconds before next attempt...")
                 await asyncio.sleep(wait_time)
             else:
@@ -710,15 +764,20 @@ if __name__ == "__main__":
     print(f"📊 Registered message handlers: {len([h for h in dp.message.handlers if h])}")
     print(f"📊 Registered callback handlers: {len([h for h in dp.callback_query.handlers if h])}")
 
-    # Check if we are running on PythonAnywhere
-    if os.environ.get('PYTHONANYWHERE_DOMAIN'):
-        # On PythonAnywhere, we don't 'run' the app here.
-        # PythonAnywhere's WSGI server will import 'app' and run it.
-        # But we need to ensure the webhook is set.
-        print("Running on PythonAnywhere (Webhook mode enabled).")
+    # Check deployment environment
+    if os.environ.get('RENDER_DOMAIN') or os.environ.get('PYTHONANYWHERE_DOMAIN'):
+        # Production: Webhook mode
+        print(f"Running in WEBHOOK mode on {'Render' if os.environ.get('RENDER_DOMAIN') else 'PythonAnywhere'}")
         asyncio.run(on_startup())
+        # Flask app will be run by the hosting platform
+        if os.environ.get('RENDER_DOMAIN'):
+            # Render needs us to run the Flask app
+            port = int(os.environ.get('PORT', 10000))
+            print(f"Starting Flask on port {port}")
+            app.run(host='0.0.0.0', port=port)
     else:
-        # Local run (Polling)
+        # Local development: Polling mode
+        print("Running in POLLING mode (local development)")
         try:
             asyncio.run(start_polling())
         except KeyboardInterrupt:

@@ -55,11 +55,9 @@
 - Все запросы (чеки + SMS) используют одну квоту Gemini API
 
 ### Файлы проекта
-- `bot.py` - основной код бота (~750 строк)
+- `bot.py` - основной код бота (~750 строк, включает Flask webhook)
 - `mapping_service.py` - сервис для работы со справочником компаний
 - `requirements.txt` - зависимости Python
-- `wsgi.py` - конфигурация для PythonAnywhere
-- `reset_webhook.py` - скрипт для настройки webhook
 - `.env` - переменные окружения (не в git)
 - `credentials.json` - Google Service Account (не в git)
 - `README.md` - описание проекта
