@@ -99,26 +99,41 @@ class MappingService:
             print(f"[SEARCH] Available fields in first row: {list(self.mapping_data[0].keys()) if self.mapping_data else 'No data'}")
             return []
 
-        # Find best matches in the specified field (case-insensitive)
-        matches = process.extract(
+        # First: try exact match (highest priority)
+        exact_matches = []
+        for value_lower in field_values:
+            if query_lower == value_lower or query_lower in value_lower:
+                exact_matches.append((value_lower, 100))  # Perfect score
+
+        # Second: fuzzy matching for partial matches
+        fuzzy_matches = process.extract(
             query_lower,
             field_values,
             limit=10,
-            scorer=fuzz.WRatio
+            scorer=fuzz.token_sort_ratio  # Better for word-based matching
         )
+
+        # Combine: exact matches first, then fuzzy
+        all_matches = exact_matches + fuzzy_matches
+        # Remove duplicates, keep highest score
+        seen = {}
+        for match_val, score in all_matches:
+            if match_val not in seen or seen[match_val] < score:
+                seen[match_val] = score
+
+        matches = [(val, score) for val, score in seen.items()]
+        matches.sort(key=lambda x: x[1], reverse=True)  # Sort by score
 
         print(f"[SEARCH] Query '{query}' found {len(matches)} matches")
         if matches:
-            print(f"[SEARCH] Top 3 matches: {[(m[0], m[1]) for m in matches[:3]]}")
+            print(f"[SEARCH] Top 5 matches: {[(m[0], m[1]) for m in matches[:5]]}")
 
         results = []
         seen_matches = set()
 
-        for match_val_lower, score, index in matches:
+        for match_val_lower, score in matches:
             if score >= threshold and match_val_lower not in seen_matches:
                 seen_matches.add(match_val_lower)
-                # Get original value (with correct case)
-                original_val = field_values_original.get(match_val_lower, match_val_lower)
                 # Find all rows matching this value (case-insensitive)
                 for row in self.mapping_data:
                     row_val = str(row.get(field_name, '')).strip()
