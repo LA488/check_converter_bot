@@ -170,15 +170,35 @@ Return JSON with:
         # Try OpenRouter first, fallback to Gemini if quota exceeded
         if OPENROUTER_API_KEY and openrouter_client:
             try:
-                response = await openrouter_client.chat.completions.create(
-                    model="mistralai/mistral-7b-instruct:free",  # Alternative free model
-                    messages=[
-                        {"role": "user", "content": prompt}
-                    ],
-                    response_format={"type": "json_object"}
-                )
-                raw_text = response.choices[0].message.content.strip()
-                print(f"[OPENROUTER SMS] Response: {raw_text}")
+                # Try multiple models in order of preference
+                models_to_try = [
+                    "google/gemini-flash-1.5",
+                    "meta-llama/llama-3.2-3b-instruct",
+                    "mistralai/mistral-7b-instruct",
+                    "qwen/qwen-2-7b-instruct"
+                ]
+
+                last_error = None
+                for model in models_to_try:
+                    try:
+                        response = await openrouter_client.chat.completions.create(
+                            model=model,
+                            messages=[
+                                {"role": "user", "content": prompt}
+                            ],
+                            response_format={"type": "json_object"}
+                        )
+                        raw_text = response.choices[0].message.content.strip()
+                        print(f"[OPENROUTER SMS] Success with model: {model}")
+                        print(f"[OPENROUTER SMS] Response: {raw_text}")
+                        break
+                    except Exception as model_error:
+                        last_error = model_error
+                        print(f"[OPENROUTER SMS] Model {model} failed: {model_error}")
+                        continue
+                else:
+                    # All models failed
+                    raise last_error if last_error else Exception("All OpenRouter models failed")
             except Exception as or_error:
                 print(f"[OPENROUTER SMS] Error: {or_error}, falling back to Gemini")
                 # Fallback to Gemini
