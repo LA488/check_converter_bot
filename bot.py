@@ -149,7 +149,8 @@ async def extract_receipt_data(image_bytes: bytes):
         return validated_data.model_dump()
     except Exception as e:
         error_msg = str(e)
-        if "429" in error_msg or "quota" in error_msg.lower():
+        print(f"[GEMINI ERROR] Full error: {error_msg}")
+        if "429" in error_msg or "quota" in error_msg.lower() or "resource_exhausted" in error_msg.lower():
             print(f"CRITICAL: Gemini quota exceeded")
             return "QUOTA_EXCEEDED"
         print(f"Gemini Receipt Error: {e}")
@@ -237,7 +238,8 @@ Return JSON with:
         return validated_data.model_dump()
     except Exception as e:
         error_msg = str(e)
-        if "429" in error_msg or "quota" in error_msg.lower():
+        print(f"[SMS PARSE ERROR] Full error: {error_msg}")
+        if "429" in error_msg or "quota" in error_msg.lower() or "resource_exhausted" in error_msg.lower():
             print(f"[SMS PARSE] Quota exceeded")
             return "QUOTA_EXCEEDED"
         print(f"[ERROR] SMS Text Extraction Error: {e}")
