@@ -187,7 +187,7 @@ Return JSON with:
         if USE_OPENROUTER:
             # Use OpenRouter with free model
             response = await openrouter_client.chat.completions.create(
-                model="google/gemini-flash-1.5",  # Updated model name for 2026
+                model="meta-llama/llama-3.2-3b-instruct:free",  # Free model
                 messages=[
                     {"role": "user", "content": prompt}
                 ],
