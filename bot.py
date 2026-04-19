@@ -772,7 +772,6 @@ if __name__ == "__main__":
     print(f"🔍 DEBUG: PYTHONANYWHERE_DOMAIN={os.environ.get('PYTHONANYWHERE_DOMAIN')}")
 
     # Check deployment environment
-    # Render sets PORT env variable automatically
     is_render = os.environ.get('PORT') is not None
     is_pythonanywhere = os.environ.get('PYTHONANYWHERE_DOMAIN') is not None
 
@@ -781,12 +780,7 @@ if __name__ == "__main__":
         platform = 'Render' if is_render else 'PythonAnywhere'
         print(f"Running in WEBHOOK mode on {platform}")
         asyncio.run(on_startup())
-
-        if is_render:
-            # Render needs us to run the Flask app
-            port = int(os.environ.get('PORT', 10000))
-            print(f"Starting Flask on port {port}")
-            app.run(host='0.0.0.0', port=port)
+        print("✅ Webhook setup complete. Gunicorn will handle Flask app.")
     else:
         # Local development: Polling mode
         print("Running in POLLING mode (local development)")

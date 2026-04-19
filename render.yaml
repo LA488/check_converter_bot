@@ -5,10 +5,8 @@ services:
     region: frankfurt
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: python bot.py
+    startCommand: gunicorn -w 1 -b 0.0.0.0:$PORT bot:app
     envVars:
-      - key: PORT
-        value: 10000
       - key: BOT_TOKEN
         sync: false
       - key: GOOGLE_AI_STUDIO_KEY
@@ -19,8 +17,6 @@ services:
         sync: false
       - key: GOOGLE_SERVICE_ACCOUNT_FILE
         value: credentials.json
-      - key: RENDER_DOMAIN
-        sync: false
       - key: WEBHOOK_SECRET
         generateValue: true
       - key: PYTHON_VERSION
