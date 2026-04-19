@@ -51,10 +51,7 @@ RENDER_DOMAIN = os.getenv("RENDER_DOMAIN")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "mysecrettoken123")
 PROXY_URL = "proxy.server:3128"
 
-# Determine which AI provider to use
-USE_OPENROUTER = bool(OPENROUTER_API_KEY and not os.environ.get('PYTHONANYWHERE_DOMAIN'))
-AI_PROVIDER = "OpenRouter" if USE_OPENROUTER else "Gemini"
-print(f"🤖 AI Provider: {AI_PROVIDER}")
+print(f"🤖 AI Setup: Gemini for receipts, OpenRouter for SMS")
 
 # Resolve credentials file path to absolute path safely
 BASE_DIR = os.path.dirname(__file__)
@@ -84,15 +81,13 @@ dp = Dispatcher(storage=MemoryStorage())
 app = Flask(__name__)
 
 # Initialize AI Clients
-if USE_OPENROUTER:
-    openrouter_client = AsyncOpenAI(
-        api_key=OPENROUTER_API_KEY,
-        base_url="https://openrouter.ai/api/v1"
-    )
-    gemini_client = None
-else:
-    gemini_client = genai.Client(api_key=GOOGLE_AI_STUDIO_KEY)
-    openrouter_client = None
+# OpenRouter for SMS text parsing
+openrouter_client = AsyncOpenAI(
+    api_key=OPENROUTER_API_KEY,
+    base_url="https://openrouter.ai/api/v1"
+) if OPENROUTER_API_KEY else None
+
+# Gemini not initialized here - will be created on-demand for receipt vision tasks
 
 # Initialize Mapping Service
 mapping_service = MappingService(GOOGLE_SHEET_URL, GOOGLE_SERVICE_ACCOUNT_FILE)
