@@ -28,8 +28,8 @@ from flask import Flask, request
 from mapping_service import MappingService
 
 # Bot version for tracking deployments
-BOT_VERSION = "2.1.0-openrouter"
-print(f"🤖 Bot version: {BOT_VERSION}")
+BOT_VERSION = "2.1.1-debug"
+print(f"[*] Bot version: {BOT_VERSION}")
 
 # Timezone for Uzbekistan (UTC+5)
 UZ_TIMEZONE = timezone(timedelta(hours=5))
@@ -51,7 +51,7 @@ RENDER_DOMAIN = os.getenv("RENDER_DOMAIN")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "mysecrettoken123")
 PROXY_URL = "proxy.server:3128"
 
-print(f"🤖 AI Setup: Gemini for receipts, OpenRouter for SMS")
+print(f"[*] AI Setup: Gemini for receipts, OpenRouter for SMS")
 
 # Resolve credentials file path to absolute path safely
 BASE_DIR = os.path.dirname(__file__)
@@ -62,6 +62,8 @@ if GOOGLE_SERVICE_ACCOUNT_FILE and not os.path.isabs(GOOGLE_SERVICE_ACCOUNT_FILE
 # Render provides RENDER_EXTERNAL_URL or we can use RENDER_DOMAIN if set manually
 render_url = os.getenv("RENDER_EXTERNAL_URL") or (f"https://{RENDER_DOMAIN}" if RENDER_DOMAIN else None)
 if render_url:
+    # Ensure no double slashes and no trailing slash in render_url
+    render_url = render_url.rstrip('/')
     WEBHOOK_URL = f"{render_url}/{WEBHOOK_SECRET}"
 elif os.getenv("PYTHONANYWHERE_USERNAME"):
     WEBHOOK_URL = f"https://{os.getenv('PYTHONANYWHERE_USERNAME')}.pythonanywhere.com/{WEBHOOK_SECRET}"
@@ -358,6 +360,10 @@ async def cmd_start(message: types.Message, state: FSMContext):
     )
 
     await message.answer(welcome_text, reply_markup=get_main_keyboard())
+
+@dp.message(Command("ping"))
+async def cmd_ping(message: types.Message):
+    await message.answer(f"🏓 <b>Pong!</b>\nVersion: <code>{BOT_VERSION}</code>\nTime: <code>{get_uz_time()}</code>")
 
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
@@ -829,10 +835,16 @@ async def on_startup():
             ]
             await bot.set_my_commands(commands)
 
-            print(f"Setting webhook to: {WEBHOOK_URL}")
+            print(f"[*] Setting webhook to: {WEBHOOK_URL}")
             await asyncio.sleep(2)
-            await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True, allowed_updates=["message", "callback_query"])
-            print("✅ Webhook and Menu set successfully!")
+            res = await bot.set_webhook(
+                WEBHOOK_URL, 
+                drop_pending_updates=True, 
+                allowed_updates=["message", "callback_query"],
+                secret_token=WEBHOOK_SECRET if len(WEBHOOK_SECRET) >= 1 else None
+            )
+            print(f"[*] Webhook set result: {res}")
+            print("[+] Webhook and Menu set successfully!")
             return
         except Exception as e:
             print(f"⚠️ Attempt {attempt} failed: {e}")
@@ -855,13 +867,13 @@ async def start_polling():
 
 if __name__ == "__main__":
     # Log registered handlers count
-    print(f"📊 Registered message handlers: {len([h for h in dp.message.handlers if h])}")
-    print(f"📊 Registered callback handlers: {len([h for h in dp.callback_query.handlers if h])}")
+    print(f"[*] Registered message handlers: {len([h for h in dp.message.handlers if h])}")
+    print(f"[*] Registered callback handlers: {len([h for h in dp.callback_query.handlers if h])}")
 
     # Debug: print environment variables
-    print(f"🔍 DEBUG: PORT={os.environ.get('PORT')}")
-    print(f"🔍 DEBUG: RENDER_EXTERNAL_URL={os.environ.get('RENDER_EXTERNAL_URL')}")
-    print(f"🔍 DEBUG: PYTHONANYWHERE_DOMAIN={os.environ.get('PYTHONANYWHERE_DOMAIN')}")
+    print(f"[*] DEBUG: PORT={os.environ.get('PORT')}")
+    print(f"[*] DEBUG: RENDER_EXTERNAL_URL={os.environ.get('RENDER_EXTERNAL_URL')}")
+    print(f"[*] DEBUG: PYTHONANYWHERE_DOMAIN={os.environ.get('PYTHONANYWHERE_DOMAIN')}")
 
     # Check deployment environment
     is_render = os.environ.get('PORT') is not None
