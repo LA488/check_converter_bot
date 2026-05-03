@@ -1,7 +1,6 @@
 import asyncio
 import os
 import json
-import re
 import traceback
 
 from io import BytesIO
@@ -20,7 +19,7 @@ from aiogram.filters import Command
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from flask import Flask, request
@@ -28,7 +27,7 @@ from flask import Flask, request
 from mapping_service import MappingService
 
 # Bot version for tracking deployments
-BOT_VERSION = "2.1.1-debug"
+BOT_VERSION = "2.2.0"
 print(f"[*] Bot version: {BOT_VERSION}")
 
 # Timezone for Uzbekistan (UTC+5)
@@ -96,6 +95,7 @@ mapping_service = MappingService(GOOGLE_SHEET_URL, GOOGLE_SERVICE_ACCOUNT_FILE)
 
 # Track last save operations per user to prevent duplicates
 last_save_tracker = {}  # {user_id: {'data': {...}, 'timestamp': datetime}}
+MAX_TRACKER_SIZE = 100  # Prevent memory leak
 
 class ReceiptData(BaseModel):
     alpha_name: Optional[str] = Field(None, description="The EXACT legal name of the merchant as written on the receipt (e.g. 'PROWEB MCHJ', 'OOO HITECH MED LAB').")
@@ -280,7 +280,6 @@ async def save_to_sheet(data: dict):
         # Check for duplicates: same brand, alpha_name, and recent timestamp (within 5 minutes)
         all_records = sheet.get_all_values()
         if len(all_records) > 1:  # Skip header row
-            from datetime import datetime, timedelta
             current_time = datetime.strptime(timestamp, "%Y-%m-%d %H:%M")
 
             for record in all_records[1:]:  # Skip header
@@ -421,8 +420,8 @@ async def handle_photo(message: types.Message, state: FSMContext):
 
     try:
         photo = message.photo[-1]
-        file_info = await bot.get_file(photo.file_id)
-        photo_bytes = await bot.download_file(file_info.file_path)
+        file_info = await message.bot.get_file(photo.file_id)
+        photo_bytes = await message.bot.download_file(file_info.file_path)
         img_data = photo_bytes.read()
 
         await status_msg.edit_text("🔍 Извлекаем данные...")
@@ -487,6 +486,9 @@ async def handle_photo(message: types.Message, state: FSMContext):
 @dp.message(SearchState.waiting_for_subcategory)
 async def handle_search_query(message: types.Message, state: FSMContext):
     """Processes search queries based on the selected mode."""
+    if not message.text:
+        await message.answer("Пожалуйста, отправьте текстовый запрос для поиска.")
+        return
     query = message.text.strip()
     current_state = await state.get_state()
     
@@ -595,13 +597,21 @@ async def handle_confirm_save(callback: types.CallbackQuery, state: FSMContext):
         'data': data.copy(),
         'timestamp': datetime.now(UZ_TIMEZONE)
     }
+    # Clean up old entries to prevent memory leak
+    if len(last_save_tracker) > MAX_TRACKER_SIZE:
+        oldest_users = sorted(
+            last_save_tracker,
+            key=lambda uid: last_save_tracker[uid]['timestamp']
+        )[:len(last_save_tracker) - MAX_TRACKER_SIZE]
+        for uid in oldest_users:
+            del last_save_tracker[uid]
     print(f"[TRACKER] Saved operation for user {user_id}")
 
-    if success:
-        await callback.message.edit_text("✨ Запись добавлена!")
-        await callback.message.answer("Главное меню:", reply_markup=get_main_keyboard())
-    elif success == "DUPLICATE":
+    if success == "DUPLICATE":
         await callback.message.edit_text("⚠️ Эта запись уже существует в таблице (дубликат в течение 5 минут).")
+        await callback.message.answer("Главное меню:", reply_markup=get_main_keyboard())
+    elif success:
+        await callback.message.edit_text("✨ Запись добавлена!")
         await callback.message.answer("Главное меню:", reply_markup=get_main_keyboard())
     else:
         await callback.message.edit_text("⚠️ Ошибка при записи в таблицу.")
@@ -614,10 +624,10 @@ async def handle_confirm_save(callback: types.CallbackQuery, state: FSMContext):
 async def handle_confirm_cancel(callback: types.CallbackQuery, state: FSMContext):
     """Handle cancel button."""
     print(f"[CALLBACK] confirm_cancel triggered by user {callback.from_user.id}")
+    await callback.answer()
     await callback.message.edit_text("❌ Отменено")
     await callback.message.answer("Главное меню:", reply_markup=get_main_keyboard())
     await state.clear()
-    await callback.answer()
 
 @dp.callback_query(F.data == "confirm_edit")
 async def handle_confirm_edit(callback: types.CallbackQuery, state: FSMContext):
@@ -640,6 +650,9 @@ async def handle_confirm_edit(callback: types.CallbackQuery, state: FSMContext):
 @dp.message(ConfirmState.waiting_confirmation)
 async def handle_manual_edit(message: types.Message, state: FSMContext):
     """Handle manually edited data from user."""
+    if not message.text:
+        await message.answer("Пожалуйста, отправьте текст с исправленными данными.")
+        return
     text = message.text.strip()
 
     # Parse the edited data
@@ -660,6 +673,13 @@ async def handle_manual_edit(message: types.Message, state: FSMContext):
                 edited_data['category'] = value
             elif 'подкатегор' in key:
                 edited_data['subcategory'] = value
+
+    if not edited_data:
+        await message.answer(
+            "⚠️ Не удалось распознать формат. Отправьте в формате:\n\n"
+            "Бренд: название\nЮр.лицо: название\nКатегория: название\nПодкатегория: название"
+        )
+        return
 
     # Update state with edited data
     old_data = await state.get_data()
@@ -776,39 +796,42 @@ async def handle_any_callback(callback: types.CallbackQuery):
     await callback.answer("⚠️ Callback получен, но handler не найден. Проверьте версию бота на сервере!")
 
 
+@app.route("/")
+def index():
+    """Root endpoint for basic connectivity check."""
+    return f"Bot v{BOT_VERSION} is running", 200
+
+@app.route("/health")
+def health_check():
+    """Health check endpoint for Render and UptimeRobot keep-alive."""
+    return {
+        "status": "ok",
+        "version": BOT_VERSION,
+        "time": get_uz_time(),
+        "webhook_url": WEBHOOK_URL is not None,
+    }, 200
+
 @app.route(f"/{WEBHOOK_SECRET}", methods=["POST"])
 def telegram_webhook():
     """Handle incoming updates from Telegram via Webhook."""
     try:
         async def process_update():
-            # Create a fresh session and bot for this request to avoid "loop closed" errors
+            # Create a fresh bot session per request to avoid stale/closed session issues
             if os.environ.get('PYTHONANYWHERE_DOMAIN'):
-                # Explicitly use the proxy URL for stable networking on PA
-                async with AiohttpSession(proxy=f"http://{PROXY_URL}") as session:
-                    async with Bot(
-                        token=BOT_TOKEN,
-                        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-                        session=session
-                    ) as temp_bot:
-                        update = types.Update.model_validate(request.json, context={"bot": temp_bot})
-                        await dp.feed_update(temp_bot, update)
+                session = AiohttpSession(proxy=f"http://{PROXY_URL}")
             else:
-                # Local or non-PA environment
-                async with Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML)) as temp_bot:
-                    update = types.Update.model_validate(request.json, context={"bot": temp_bot})
-                    await dp.feed_update(temp_bot, update)
+                session = AiohttpSession()
 
-        # Use get_event_loop or create new one if closed
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_closed():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            async with Bot(
+                token=BOT_TOKEN,
+                default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+                session=session
+            ) as request_bot:
+                update = types.Update.model_validate(request.json, context={"bot": request_bot})
+                await dp.feed_update(request_bot, update)
 
-        loop.run_until_complete(process_update())
+        # asyncio.run() creates a fresh event loop every time — safe for sync Gunicorn workers
+        asyncio.run(process_update())
     except Exception as e:
         error_trace = traceback.format_exc()
         app.logger.error(f"Webhook error: {e}\n{error_trace}")
