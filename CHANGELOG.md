@@ -2,6 +2,35 @@
 
 Все значимые изменения в проекте документируются в этом файле.
 
+## [2.2.1] - 2026-05-07 - Исправление webhook 404 ошибки
+
+### Исправлено
+- **Webhook 404 Error** - Исправлена критическая ошибка, из-за которой бот не отвечал на сообщения
+  - **Проблема**: Flask route регистрировался с f-string `@app.route(f"/{WEBHOOK_SECRET}")` во время импорта модуля
+  - Если `WEBHOOK_SECRET` на Render отличался от значения при установке webhook, возникала 404 ошибка
+  - `on_startup()` не вызывался, так как `start.py` использовал `os.execvp()` который заменял процесс до завершения setup
+- **Webhook setup timing** - Перенесена установка webhook из `start.py` в module-level код `bot.py`
+  - Теперь webhook устанавливается когда Gunicorn импортирует модуль
+  - Гарантирует выполнение `on_startup()` в production окружении
+
+### Добавлено
+- **Debug logging** - Добавлено логирование для диагностики webhook проблем:
+  - `[DEBUG] RENDER_EXTERNAL_URL` - URL предоставленный Render
+  - `[DEBUG] RENDER_DOMAIN` - домен из переменных окружения
+  - `[DEBUG] PORT` - порт для определения production окружения
+  - `[DEBUG] Constructed WEBHOOK_URL` - итоговый URL webhook
+  - `[*] Production environment detected, setting up webhook...` - индикатор запуска setup
+
+### Изменено
+- **Версия бота** - `BOT_VERSION = "2.2.1"`
+- **Webhook setup flow** - теперь выполняется на уровне модуля при импорте в production
+
+### Технические детали
+- Проблема возникла из-за несоответствия `WEBHOOK_SECRET` между Render environment variables и webhook URL
+- Telegram продолжал отправлять запросы на старый путь `/mysecrettoken123`
+- Flask ожидал запросы на новый путь с другим secret token
+- Решение: синхронизация `WEBHOOK_SECRET` и перенос setup в module-level код
+
 ## [2026-04-17] - Исправления и улучшения
 
 ### Исправлено

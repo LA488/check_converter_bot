@@ -207,9 +207,28 @@ Bot outputs detailed logs:
 - Check date format in "Date" column (should be `YYYY-MM-DD HH:MM`)
 - Ensure timezone is UTC+5 (Uzbekistan)
 
+### Webhook 404 Error (Fixed in v2.2.1)
+**Problem**: Telegram sends requests to webhook endpoint but receives 404 error.
+
+**Root Cause**: 
+- Flask route was registered with f-string during module import: `@app.route(f"/{WEBHOOK_SECRET}")`
+- If `WEBHOOK_SECRET` environment variable changed on Render, the route path didn't match
+- Webhook was set to old path (e.g., `/mysecrettoken123`) but Flask expected new path
+- Additionally, `on_startup()` wasn't being called because `start.py` used `os.execvp()` which replaced the process before webhook setup completed
+
+**Solution** (2026-05-07):
+1. Ensured `WEBHOOK_SECRET` environment variable matches between Render settings and webhook URL
+2. Moved webhook setup from `start.py` to module-level code in `bot.py` that runs when Gunicorn imports the module
+3. Added debug logging to track `RENDER_EXTERNAL_URL`, `WEBHOOK_SECRET`, and constructed `WEBHOOK_URL`
+
+**How to verify it's fixed**:
+- Check Render logs for: `[*] Production environment detected, setting up webhook...`
+- Should see: `[+] Webhook and Menu set successfully!`
+- No more `404` errors in logs when Telegram sends updates
+
 ## 📈 Version
 
-**Current Version**: `2.1.0-openrouter`
+**Current Version**: `2.2.1`
 
 See [CHANGELOG.md](CHANGELOG.md) for version history.
 

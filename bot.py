@@ -27,7 +27,7 @@ from flask import Flask, request
 from mapping_service import MappingService
 
 # Bot version for tracking deployments
-BOT_VERSION = "2.2.0"
+BOT_VERSION = "2.2.1"
 print(f"[*] Bot version: {BOT_VERSION}")
 
 # Timezone for Uzbekistan (UTC+5)

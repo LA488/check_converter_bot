@@ -18,6 +18,6 @@ services:
       - key: GOOGLE_SERVICE_ACCOUNT_FILE
         value: credentials.json
       - key: WEBHOOK_SECRET
-        generateValue: true
+        sync: false
       - key: PYTHON_VERSION
         value: 3.12.0
