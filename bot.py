@@ -60,6 +60,12 @@ if GOOGLE_SERVICE_ACCOUNT_FILE and not os.path.isabs(GOOGLE_SERVICE_ACCOUNT_FILE
 # Construct Webhook URL
 # Render provides RENDER_EXTERNAL_URL or we can use RENDER_DOMAIN if set manually
 render_url = os.getenv("RENDER_EXTERNAL_URL") or (f"https://{RENDER_DOMAIN}" if RENDER_DOMAIN else None)
+
+# Debug: print environment variables for webhook URL construction
+print(f"[DEBUG] RENDER_EXTERNAL_URL: {os.getenv('RENDER_EXTERNAL_URL')}")
+print(f"[DEBUG] RENDER_DOMAIN: {RENDER_DOMAIN}")
+print(f"[DEBUG] PORT: {os.getenv('PORT')}")
+
 if render_url:
     # Ensure no double slashes and no trailing slash in render_url
     render_url = render_url.rstrip('/')
@@ -68,6 +74,8 @@ elif os.getenv("PYTHONANYWHERE_USERNAME"):
     WEBHOOK_URL = f"https://{os.getenv('PYTHONANYWHERE_USERNAME')}.pythonanywhere.com/{WEBHOOK_SECRET}"
 else:
     WEBHOOK_URL = None  # Local development
+
+print(f"[DEBUG] Constructed WEBHOOK_URL: {WEBHOOK_URL}")
 
 # Bot and Dispatcher setup
 # We will initialize Bot with a proxy session if on PythonAnywhere to avoid global loop issues
