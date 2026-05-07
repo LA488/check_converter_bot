@@ -896,6 +896,15 @@ async def start_polling():
     print("Starting in POLLING mode...")
     await dp.start_polling(bot)
 
+# Setup webhook when module is imported by Gunicorn worker
+if os.environ.get('PORT') or os.environ.get('PYTHONANYWHERE_DOMAIN'):
+    # Production: Setup webhook on worker start
+    print("[*] Production environment detected, setting up webhook...")
+    try:
+        asyncio.run(on_startup())
+    except Exception as e:
+        print(f"[!] Webhook setup failed: {e}")
+
 if __name__ == "__main__":
     # Log registered handlers count
     print(f"[*] Registered message handlers: {len([h for h in dp.message.handlers if h])}")
@@ -914,8 +923,7 @@ if __name__ == "__main__":
         # Production: Webhook mode
         platform = 'Render' if is_render else 'PythonAnywhere'
         print(f"Running in WEBHOOK mode on {platform}")
-        asyncio.run(on_startup())
-        print("✅ Webhook setup complete. Gunicorn will handle Flask app.")
+        print("✅ Webhook will be set up by Gunicorn worker. Gunicorn will handle Flask app.")
     else:
         # Local development: Polling mode
         print("Running in POLLING mode (local development)")
