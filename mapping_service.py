@@ -3,6 +3,25 @@ import gspread
 from rapidfuzz import process, fuzz
 from typing import Optional, List, Dict # Critical for server-side compatibility
 
+# Cyrillic to Latin transliteration map for fuzzy matching
+CYRILLIC_TO_LATIN = {
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'yo',
+    'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
+    'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
+    'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'sch',
+    'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya',
+    'А': 'A', 'Б': 'B', 'В': 'V', 'Г': 'G', 'Д': 'D', 'Е': 'E', 'Ё': 'Yo',
+    'Ж': 'Zh', 'З': 'Z', 'И': 'I', 'Й': 'Y', 'К': 'K', 'Л': 'L', 'М': 'M',
+    'Н': 'N', 'О': 'O', 'П': 'P', 'Р': 'R', 'С': 'S', 'Т': 'T', 'У': 'U',
+    'Ф': 'F', 'Х': 'H', 'Ц': 'Ts', 'Ч': 'Ch', 'Ш': 'Sh', 'Щ': 'Sch',
+    'Ъ': '', 'Ы': 'Y', 'Ь': '', 'Э': 'E', 'Ю': 'Yu', 'Я': 'Ya',
+}
+
+
+def transliterate(text: str) -> str:
+    """Convert Cyrillic text to Latin approximation."""
+    return ''.join(CYRILLIC_TO_LATIN.get(c, c) for c in text)
+
 
 class MappingService:
     def __init__(self, google_sheet_url: str, credentials_file: str):
@@ -69,8 +88,8 @@ class MappingService:
                         return row
         return None
 
-    def search_by_brand_name(self, query: str, threshold: int = 70) -> List[Dict]:
-        """Wrapper for search_by_field to maintain compatibility. Threshold 70 for accurate results."""
+    def search_by_brand_name(self, query: str, threshold: int = 60) -> List[Dict]:
+        """Wrapper for search_by_field to maintain compatibility. Lowered threshold for better recall."""
         return self.search_by_field('ИМЯ', query, threshold)
 
     def search_by_field(self, field_name: str, query: str, threshold: int = 70) -> List[Dict]:
@@ -81,6 +100,12 @@ class MappingService:
 
         # Normalize query to lowercase for case-insensitive search
         query_lower = query.lower().strip()
+
+        # Also try transliterated version for cross-script matching
+        query_translit = transliterate(query).lower().strip()
+        queries_to_try = [query_lower]
+        if query_translit != query_lower:
+            queries_to_try.append(query_translit)
 
         # Get all unique values for the specified field (lowercase for comparison)
         field_values = []
@@ -99,47 +124,47 @@ class MappingService:
             print(f"[SEARCH] Available fields in first row: {list(self.mapping_data[0].keys()) if self.mapping_data else 'No data'}")
             return []
 
-        # First: try exact match (highest priority)
-        exact_matches = []
-        for value_lower in field_values:
-            if query_lower == value_lower or query_lower in value_lower:
-                exact_matches.append((value_lower, 100))  # Perfect score
-
-        # Second: fuzzy matching for partial matches
-        fuzzy_matches = process.extract(
-            query_lower,
-            field_values,
-            limit=10,
-            scorer=fuzz.token_sort_ratio  # Better for word-based matching
-        )
-
-        # Combine: exact matches first, then fuzzy
-        # fuzzy_matches returns (value, score, index) - we only need (value, score)
-        all_matches = exact_matches + [(val, score) for val, score, idx in fuzzy_matches]
-        # Remove duplicates, keep highest score
-        seen = {}
-        for match_val, score in all_matches:
-            if match_val not in seen or seen[match_val] < score:
-                seen[match_val] = score
-
-        matches = [(val, score) for val, score in seen.items()]
-        matches.sort(key=lambda x: x[1], reverse=True)  # Sort by score
-
-        print(f"[SEARCH] Query '{query}' found {len(matches)} matches")
-        if matches:
-            print(f"[SEARCH] Top 5 matches: {[(m[0], m[1]) for m in matches[:5]]}")
-
-        results = []
+        all_results = []
         seen_matches = set()
 
-        for match_val_lower, score in matches:
-            if score >= threshold and match_val_lower not in seen_matches:
-                seen_matches.add(match_val_lower)
-                # Find all rows matching this value (case-insensitive)
-                for row in self.mapping_data:
-                    row_val = str(row.get(field_name, '')).strip()
-                    if row_val.lower() == match_val_lower:
-                        results.append(row)
+        for q in queries_to_try:
+            # First: try exact match (highest priority)
+            exact_matches = []
+            for value_lower in field_values:
+                if q == value_lower or q in value_lower:
+                    exact_matches.append((value_lower, 100))  # Perfect score
 
-        print(f"[SEARCH] Returning {len(results)} results (threshold: {threshold})")
-        return results
+            # Second: fuzzy matching for partial matches
+            fuzzy_matches = process.extract(
+                q,
+                field_values,
+                limit=10,
+                scorer=fuzz.token_sort_ratio  # Better for word-based matching
+            )
+
+            # Combine: exact matches first, then fuzzy
+            combined_matches = exact_matches + [(val, score) for val, score, idx in fuzzy_matches]
+            # Remove duplicates, keep highest score
+            seen = {}
+            for match_val, score in combined_matches:
+                if match_val not in seen or seen[match_val] < score:
+                    seen[match_val] = score
+
+            matches = [(val, score) for val, score in seen.items()]
+            matches.sort(key=lambda x: x[1], reverse=True)  # Sort by score
+
+            print(f"[SEARCH] Query '{q}' found {len(matches)} matches")
+            if matches:
+                print(f"[SEARCH] Top 5 matches: {[(m[0], m[1]) for m in matches[:5]]}")
+
+            for match_val_lower, score in matches:
+                if score >= threshold and match_val_lower not in seen_matches:
+                    seen_matches.add(match_val_lower)
+                    # Find all rows matching this value (case-insensitive)
+                    for row in self.mapping_data:
+                        row_val = str(row.get(field_name, '')).strip()
+                        if row_val.lower() == match_val_lower:
+                            all_results.append(row)
+
+        print(f"[SEARCH] Returning {len(all_results)} results (threshold: {threshold})")
+        return all_results

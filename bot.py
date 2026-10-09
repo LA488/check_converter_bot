@@ -27,7 +27,7 @@ from flask import Flask, request
 from mapping_service import MappingService
 
 # Bot version for tracking deployments
-BOT_VERSION = "2.2.1"
+BOT_VERSION = "2.3.0"
 print(f"[*] Bot version: {BOT_VERSION}")
 
 # Timezone for Uzbekistan (UTC+5)
@@ -819,31 +819,94 @@ def health_check():
         "webhook_url": WEBHOOK_URL is not None,
     }, 200
 
-@app.route(f"/{WEBHOOK_SECRET}", methods=["POST"])
-def telegram_webhook():
-    """Handle incoming updates from Telegram via Webhook."""
+
+@app.route("/debug")
+def debug_info():
+    """Diagnostic endpoint showing bot configuration and dependencies status."""
+    import sys
+    
+    # Check environment variables
+    env_status = {
+        "BOT_TOKEN": "✅ set" if BOT_TOKEN else "❌ missing",
+        "GOOGLE_AI_STUDIO_KEY": "✅ set" if GOOGLE_AI_STUDIO_KEY else "❌ missing",
+        "OPENROUTER_API_KEY": "✅ set" if OPENROUTER_API_KEY else "❌ missing",
+        "GOOGLE_SHEET_URL": "✅ set" if GOOGLE_SHEET_URL else "❌ missing",
+        "GOOGLE_SERVICE_ACCOUNT_FILE": "✅ set" if GOOGLE_SERVICE_ACCOUNT_FILE else "❌ missing",
+        "WEBHOOK_SECRET": "✅ set" if WEBHOOK_SECRET else "❌ missing",
+        "RENDER_EXTERNAL_URL": "✅ set" if os.getenv("RENDER_EXTERNAL_URL") else "❌ missing",
+        "PORT": "✅ set" if os.getenv("PORT") else "❌ missing",
+    }
+    
+    # Check credentials file
+    creds_exists = os.path.exists(GOOGLE_SERVICE_ACCOUNT_FILE) if GOOGLE_SERVICE_ACCOUNT_FILE else False
+    
+    # Check mapping service
+    mapping_stats = {
+        "records_loaded": len(mapping_service.mapping_data),
+        "brands_count": len(mapping_service.brand_names),
+        "legal_names_count": len(mapping_service.legal_names),
+    }
+    
+    # Check Google Sheets connectivity
+    sheets_status = "unknown"
     try:
-        async def process_update():
-            # Create a fresh bot session per request to avoid stale/closed session issues
-            if os.environ.get('PYTHONANYWHERE_DOMAIN'):
-                session = AiohttpSession(proxy=f"http://{PROXY_URL}")
-            else:
-                session = AiohttpSession()
-
-            async with Bot(
-                token=BOT_TOKEN,
-                default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-                session=session
-            ) as request_bot:
-                update = types.Update.model_validate(request.json, context={"bot": request_bot})
-                await dp.feed_update(request_bot, update)
-
-        # asyncio.run() creates a fresh event loop every time — safe for sync Gunicorn workers
-        asyncio.run(process_update())
+        client = get_sheets_client()
+        if client:
+            sh = client.open_by_url(GOOGLE_SHEET_URL)
+            sheets_status = "✅ connected"
+        else:
+            sheets_status = "❌ client creation failed"
     except Exception as e:
-        error_trace = traceback.format_exc()
-        app.logger.error(f"Webhook error: {e}\n{error_trace}")
-        print(f"Webhook error: {e}\n{error_trace}")
+        sheets_status = f"❌ error: {str(e)[:100]}"
+    
+    # Webhook info
+    webhook_info = {
+        "configured_url": WEBHOOK_URL,
+        "secret_preview": WEBHOOK_SECRET[:8] + "..." if WEBHOOK_SECRET else "missing",
+        "render_external_url": os.getenv("RENDER_EXTERNAL_URL"),
+        "render_domain": RENDER_DOMAIN,
+    }
+    
+    return {
+        "version": BOT_VERSION,
+        "time": get_uz_time(),
+        "python_version": sys.version.split()[0],
+        "environment": env_status,
+        "credentials_file": {
+            "path": GOOGLE_SERVICE_ACCOUNT_FILE,
+            "exists": creds_exists,
+        },
+        "mapping_service": mapping_stats,
+        "google_sheets": sheets_status,
+        "webhook": webhook_info,
+        "last_save_tracker_size": len(last_save_tracker),
+    }, 200
+
+@app.route("/<path:webhook_token>", methods=["POST"])
+def telegram_webhook(webhook_token):
+    """Handle incoming updates from Telegram via Webhook."""
+    # Validate webhook secret matches the route
+    if webhook_token != WEBHOOK_SECRET:
+        app.logger.warning(f"Webhook token mismatch: expected {WEBHOOK_SECRET[:8]}..., got {webhook_token[:8]}...")
+        return "Not Found", 404
+
+    async def process_update():
+        # Create a fresh bot session per request to avoid stale/closed session issues
+        if os.environ.get('PYTHONANYWHERE_DOMAIN'):
+            session = AiohttpSession(proxy=f"http://{PROXY_URL}")
+        else:
+            session = AiohttpSession()
+
+        async with Bot(
+            token=BOT_TOKEN,
+            default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+            session=session
+        ) as request_bot:
+            update = types.Update.model_validate(request.json, context={"bot": request_bot})
+            await dp.feed_update(request_bot, update)
+
+    # asyncio.run() creates a fresh event loop every time — safe for sync Gunicorn workers
+    asyncio.run(process_update())
     return "OK", 200
 
 
