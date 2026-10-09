@@ -1154,19 +1154,13 @@ async def on_startup():
             ]
             await bot.set_my_commands(commands)
 
-            # Set menu button to open Mini App
-            mini_app_url = f"https://{os.getenv('RENDER_EXTERNAL_URL', '').replace('https://', '')}/app" if os.getenv('RENDER_EXTERNAL_URL') else None
-            if mini_app_url:
-                try:
-                    from aiogram.types import MenuButtonWebApp
-                    menu_button = MenuButtonWebApp(
-                        text="📱 Открыть приложение",
-                        web_app=types.WebAppInfo(url=mini_app_url)
-                    )
-                    await bot.set_chat_menu_button(menu_button=menu_button)
-                    print(f"[*] Menu button set to open Mini App: {mini_app_url}")
-                except Exception as mb_err:
-                    print(f"[!] Failed to set menu button: {mb_err}")
+            # Restore default menu button (shows commands: start, help, cancel)
+            try:
+                from aiogram.types import MenuButtonDefault
+                await bot.set_chat_menu_button(menu_button=MenuButtonDefault())
+                print("[*] Menu button restored to default (commands: start, help, cancel)")
+            except Exception as mb_err:
+                print(f"[!] Failed to restore menu button: {mb_err}")
 
             print(f"[*] Setting webhook to: {WEBHOOK_URL}")
             await asyncio.sleep(2)
