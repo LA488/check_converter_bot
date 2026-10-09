@@ -542,9 +542,54 @@
                 grid-template-columns: 1fr;
             }
 
-            .data-table th:nth-child(2),
-            .data-table td:nth-child(2) {
+            /* Transform table to cards on mobile */
+            .data-table thead {
                 display: none;
+            }
+
+            .data-table,
+            .data-table tbody,
+            .data-table tr,
+            .data-table td {
+                display: block;
+                width: 100%;
+            }
+
+            .data-table tr {
+                background: var(--bg-card);
+                border-radius: 16px;
+                margin-bottom: 12px;
+                padding: 16px;
+                box-shadow: var(--shadow);
+                border: 1px solid var(--border);
+            }
+
+            .data-table td {
+                padding: 8px 0;
+                border-bottom: 1px solid var(--border);
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                text-align: right;
+            }
+
+            .data-table td:last-child {
+                border-bottom: none;
+            }
+
+            .data-table td::before {
+                content: attr(data-label);
+                font-weight: 600;
+                color: var(--text-secondary);
+                font-size: 12px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                text-align: left;
+                margin-right: 16px;
+            }
+
+            .data-table .brand-name {
+                font-size: 16px;
             }
 
             .bar-label {
@@ -772,10 +817,10 @@
             pageData.forEach(item => {
                 html += `
                     <tr>
-                        <td><span class="brand-name">${escapeHtml(item['ИМЯ'] || '')}</span></td>
-                        <td><span class="legal-name">${escapeHtml(item['АЛЬФА ИМЯ'] || '')}</span></td>
-                        <td><span class="category-badge">${escapeHtml(item['КАТЕГОРИЯ'] || '')}</span></td>
-                        <td><span class="subcategory-text">${escapeHtml(item['ПОДКАТЕГОРИЯ'] || '-')}</span></td>
+                        <td data-label="Бренд"><span class="brand-name">${escapeHtml(item['ИМЯ'] || '')}</span></td>
+                        <td data-label="Юр. лицо"><span class="legal-name">${escapeHtml(item['АЛЬФА ИМЯ'] || '')}</span></td>
+                        <td data-label="Категория"><span class="category-badge">${escapeHtml(item['КАТЕГОРИЯ'] || '')}</span></td>
+                        <td data-label="Подкатегория"><span class="subcategory-text">${escapeHtml(item['ПОДКАТЕГОРИЯ'] || '-')}</span></td>
                     </tr>
                 `;
             });

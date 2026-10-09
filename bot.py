@@ -418,12 +418,6 @@ def get_main_keyboard():
         [KeyboardButton(text="📂 По категории"), KeyboardButton(text="🔹 По подкатегории")],
         [KeyboardButton(text="❌ Отмена")]
     ]
-    # Add Mini App button if URL is configured
-    mini_app_url = get_mini_app_url()
-    if mini_app_url:
-        from aiogram.types import WebAppInfo
-        app_button = KeyboardButton(text="📱 Приложение", web_app=WebAppInfo(url=mini_app_url))
-        buttons.append([app_button])
     return ReplyKeyboardMarkup(
         keyboard=buttons, 
         resize_keyboard=True,
@@ -541,6 +535,30 @@ async def cmd_menu(message: types.Message):
         await message.answer("✅ Меню команд обновлено. Нажми на имя бота вверху чата → увидишь Start/Help/Cancel.")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command("app"))
+async def cmd_app(message: types.Message):
+    """Opens the Mini App via web app button."""
+    mini_app_url = get_mini_app_url()
+    if not mini_app_url:
+        await message.answer("⚠️ Mini App не настроен. Обратитесь к администратору.")
+        return
+    
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="📱 Открыть приложение",
+            web_app=WebAppInfo(url=mini_app_url)
+        )]
+    ])
+    await message.answer(
+        "📱 <b>Мини-приложение</b>\n\n"
+        "Просмотр справочника, статистика и добавление маппингов.",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
 
 @dp.message(F.photo)
 async def handle_photo(message: types.Message, state: FSMContext):
@@ -1169,7 +1187,8 @@ async def on_startup():
             commands = [
                 types.BotCommand(command="start", description="🏠 Главное меню / Начать поиск"),
                 types.BotCommand(command="help", description="❓ Как пользоваться"),
-                types.BotCommand(command="cancel", description="❌ Отменить поиск")
+                types.BotCommand(command="cancel", description="❌ Отменить поиск"),
+                types.BotCommand(command="app", description="📱 Открыть мини-приложение")
             ]
             # Set commands for all users (default scope)
             await bot.set_my_commands(commands)
