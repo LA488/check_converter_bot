@@ -523,6 +523,24 @@ async def cmd_reload(message: types.Message):
     mapping_service._load_data()
     await message.answer("🔄 База брендов успешно обновлена!")
 
+
+@dp.message(Command("menu"))
+async def cmd_menu(message: types.Message):
+    """Manually set up the menu button with commands."""
+    try:
+        commands = [
+            types.BotCommand(command="start", description="🏠 Главное меню / Начать поиск"),
+            types.BotCommand(command="help", description="❓ Как пользоваться"),
+            types.BotCommand(command="cancel", description="❌ Отменить поиск"),
+            types.BotCommand(command="menu", description="⚙️ Настроить меню команд")
+        ]
+        await message.bot.set_my_commands(commands)
+        from aiogram.types import MenuButtonCommands
+        await message.bot.set_chat_menu_button(chat_id=message.chat.id, menu_button=MenuButtonCommands())
+        await message.answer("✅ Меню команд обновлено. Нажми на имя бота вверху чата → увидишь Start/Help/Cancel.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
 @dp.message(F.photo)
 async def handle_photo(message: types.Message, state: FSMContext):
     status_msg = await message.answer("🚀 Анализируем чек...")
@@ -1152,15 +1170,17 @@ async def on_startup():
                 types.BotCommand(command="help", description="❓ Как пользоваться"),
                 types.BotCommand(command="cancel", description="❌ Отменить поиск")
             ]
+            # Set commands for all users (default scope)
             await bot.set_my_commands(commands)
 
-            # Restore default menu button (shows commands: start, help, cancel)
+            # Set menu button to show commands explicitly
             try:
-                from aiogram.types import MenuButtonDefault
-                await bot.set_chat_menu_button(menu_button=MenuButtonDefault())
-                print("[*] Menu button restored to default (commands: start, help, cancel)")
+                from aiogram.types import MenuButtonCommands
+                menu_button = MenuButtonCommands()
+                await bot.set_chat_menu_button(menu_button=menu_button)
+                print("[*] Menu button set to commands (start, help, cancel)")
             except Exception as mb_err:
-                print(f"[!] Failed to restore menu button: {mb_err}")
+                print(f"[!] Failed to set menu button: {mb_err}")
 
             print(f"[*] Setting webhook to: {WEBHOOK_URL}")
             await asyncio.sleep(2)
