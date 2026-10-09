@@ -404,12 +404,25 @@ class ConfirmState(StatesGroup):
     waiting_confirmation = State()
 
 # --- Keyboards ---
+def get_mini_app_url():
+    """Returns the Mini App URL based on environment."""
+    render_url = os.getenv("RENDER_EXTERNAL_URL")
+    if render_url:
+        return f"{render_url.rstrip('/')}/app"
+    return None
+
 def get_main_keyboard():
     buttons = [
         [KeyboardButton(text="🔍 По бренду"), KeyboardButton(text="🏢 По юр. лицу")],
         [KeyboardButton(text="📂 По категории"), KeyboardButton(text="🔹 По подкатегории")],
         [KeyboardButton(text="❌ Отмена")]
     ]
+    # Add Mini App button if URL is configured
+    mini_app_url = get_mini_app_url()
+    if mini_app_url:
+        from aiogram.types import WebAppInfo
+        app_button = KeyboardButton(text="📱 Приложение", web_app=WebAppInfo(url=mini_app_url))
+        buttons.append([app_button])
     return ReplyKeyboardMarkup(
         keyboard=buttons, 
         resize_keyboard=True,
