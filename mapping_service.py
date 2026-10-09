@@ -23,6 +23,27 @@ def transliterate(text: str) -> str:
     return ''.join(CYRILLIC_TO_LATIN.get(c, c) for c in text)
 
 
+def normalize_category(text: str) -> str:
+    """Normalize category to Title Case (each word capitalized).
+    Handles UPPER, lower, and mixed case variants.
+    """
+    if not text:
+        return text
+    # Strip and convert to title case
+    normalized = text.strip().title()
+    # Fix common exceptions
+    exceptions = {
+        'Ит': 'ИТ',  # IT
+        'Мчж': 'МЧЖ',
+        'ООО': 'ООО',
+    }
+    for wrong, correct in exceptions.items():
+        normalized = normalized.replace(f' {wrong} ', f' {correct} ')
+        if normalized.startswith(wrong + ' '):
+            normalized = correct + normalized[len(wrong):]
+    return normalized
+
+
 class MappingService:
     def __init__(self, google_sheet_url: str, credentials_file: str):
         self.sheet_url = google_sheet_url
@@ -57,6 +78,13 @@ class MappingService:
             # Pre-populate lists for fuzzy matching
             self.legal_names = [str(row.get('АЛЬФА ИМЯ', '')).strip() for row in data if row.get('АЛЬФА ИМЯ')]
             self.brand_names = [str(row.get('ИМЯ', '')).strip() for row in data if row.get('ИМЯ')]
+
+            # Normalize categories and subcategories to Title Case
+            for row in data:
+                if row.get('КАТЕГОРИЯ'):
+                    row['КАТЕГОРИЯ'] = normalize_category(row['КАТЕГОРИЯ'])
+                if row.get('ПОДКАТЕГОРИЯ'):
+                    row['ПОДКАТЕГОРИЯ'] = normalize_category(row['ПОДКАТЕГОРИЯ'])
 
             print(f"MappingService: Loaded {len(self.mapping_data)} records.")
             print(f"MappingService: Sample brands: {self.brand_names[:10]}")

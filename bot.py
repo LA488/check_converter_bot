@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 from flask import Flask, request
 from rapidfuzz import fuzz
 
-from mapping_service import MappingService
+from mapping_service import MappingService, normalize_category
 
 # Bot version for tracking deployments
 BOT_VERSION = "2.3.0"
@@ -478,6 +478,8 @@ async def cmd_cancel_command(message: types.Message, state: FSMContext):
     await message.answer("❌ Действие отменено", reply_markup=get_main_keyboard())
 
 @dp.message(F.text == "❌ Отмена")
+@dp.message(F.text.regexp(r"^(?i)отмена$"))
+@dp.message(F.text.regexp(r"^(?i)cancel$"))
 async def cmd_cancel(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("Отменено. Выберите режим поиска:", reply_markup=get_main_keyboard())
@@ -1009,18 +1011,10 @@ def debug_info():
 
 @app.route("/api/mapping")
 def api_mapping():
-    """Returns all mapping data from Sheet1."""
-    client = get_sheets_client()
-    if not client:
-        return {"error": "Google Sheets client failed"}, 500
+    """Returns all mapping data from in-memory service (normalized)."""
     try:
-        sh = client.open_by_url(GOOGLE_SHEET_URL)
-        worksheet = sh.worksheet("Sheet1")
-        raw_data = worksheet.get_all_values()
-        if len(raw_data) <= 1:
-            return {"data": [], "count": 0}
-        headers = raw_data[0]
-        data = [dict(zip(headers, row)) for row in raw_data[1:]]
+        # Use in-memory data (already normalized and fast)
+        data = mapping_service.mapping_data
         return {"data": data, "count": len(data)}
     except Exception as e:
         return {"error": str(e)}, 500
@@ -1028,29 +1022,22 @@ def api_mapping():
 
 @app.route("/api/mapping/stats")
 def api_mapping_stats():
-    """Returns category statistics from Sheet1."""
-    client = get_sheets_client()
-    if not client:
-        return {"error": "Google Sheets client failed"}, 500
+    """Returns category statistics from in-memory mapping service."""
     try:
-        sh = client.open_by_url(GOOGLE_SHEET_URL)
-        worksheet = sh.worksheet("Sheet1")
-        raw_data = worksheet.get_all_values()
-        if len(raw_data) <= 1:
-            return {"categories": {}, "subcategories": {}, "total": 0}
+        # Use in-memory data (much faster than Google Sheets)
+        data = mapping_service.mapping_data
         
-        headers = raw_data[0]
-        cat_idx = headers.index("КАТЕГОРИЯ") if "КАТЕГОРИЯ" in headers else -1
-        subcat_idx = headers.index("ПОДКАТЕГОРИЯ") if "ПОДКАТЕГОРИЯ" in headers else -1
+        if not data:
+            return {"categories": {}, "subcategories": {}, "total": 0}
         
         categories = {}
         subcategories = {}
-        for row in raw_data[1:]:
-            if cat_idx >= 0 and row[cat_idx]:
-                cat = row[cat_idx].strip()
+        for row in data:
+            cat = (row.get('КАТЕГОРИЯ') or '').strip()
+            subcat = (row.get('ПОДКАТЕГОРИЯ') or '').strip()
+            if cat:
                 categories[cat] = categories.get(cat, 0) + 1
-            if subcat_idx >= 0 and row[subcat_idx]:
-                subcat = row[subcat_idx].strip()
+            if subcat:
                 subcategories[subcat] = subcategories.get(subcat, 0) + 1
         
         # Top 5 categories
@@ -1060,7 +1047,7 @@ def api_mapping_stats():
             "categories": categories,
             "subcategories": subcategories,
             "top_categories": top_categories,
-            "total_brands": len(raw_data) - 1
+            "total_brands": len(data)
         }
     except Exception as e:
         return {"error": str(e)}, 500
@@ -1076,8 +1063,8 @@ def api_mapping_add():
         data = request.json
         brand = (data.get("brand") or "").strip()
         legal = (data.get("legal") or "").strip()
-        category = (data.get("category") or "").strip()
-        subcategory = (data.get("subcategory") or "").strip()
+        category = normalize_category((data.get("category") or "").strip())
+        subcategory = normalize_category((data.get("subcategory") or "").strip())
         
         if not brand or not category:
             return {"error": "Brand and category are required"}, 400
