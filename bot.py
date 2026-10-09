@@ -23,6 +23,7 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMar
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from flask import Flask, request
+from rapidfuzz import fuzz
 
 from mapping_service import MappingService
 
@@ -318,6 +319,80 @@ async def save_to_sheet(data: dict):
         print(f"[ERROR] Sheets Error: {e}")
         return False
 
+
+async def find_similar_expenses(data: dict, threshold: int = 80) -> list:
+    """
+    Search worksheet 0 (expenses) for similar entries.
+    Returns list of matching rows with similarity info.
+    """
+    client = get_sheets_client()
+    if not client:
+        return []
+
+    try:
+        sh = client.open_by_url(GOOGLE_SHEET_URL)
+        sheet = sh.get_worksheet(0)
+        all_records = sheet.get_all_values()
+
+        if len(all_records) <= 1:  # Only header or empty
+            return []
+
+        brand_name = (data.get('brand_name', '') or '').strip().lower()
+        alpha_name = (data.get('alpha_name', '') or '').strip().lower()
+        category = (data.get('category', '') or '').strip().lower()
+        subcategory = (data.get('subcategory', '') or '').strip().lower()
+
+        if not any([brand_name, alpha_name, category]):
+            return []
+
+        matches = []
+        for record in all_records[1:]:  # Skip header
+            if len(record) < 5:
+                continue
+
+            existing_brand = (record[0] or '').strip().lower()
+            existing_alpha = (record[1] or '').strip().lower()
+            existing_category = (record[2] or '').strip().lower()
+            existing_subcategory = (record[3] or '').strip().lower()
+            existing_timestamp = record[4]
+
+            # Calculate similarity scores
+            scores = []
+            if brand_name and existing_brand:
+                scores.append(fuzz.token_sort_ratio(brand_name, existing_brand))
+            if alpha_name and existing_alpha:
+                scores.append(fuzz.token_sort_ratio(alpha_name, existing_alpha))
+            if category and existing_category:
+                scores.append(fuzz.token_sort_ratio(category, existing_category))
+            if subcategory and existing_subcategory:
+                scores.append(fuzz.token_sort_ratio(subcategory, existing_subcategory))
+
+            if not scores:
+                continue
+
+            avg_score = sum(scores) / len(scores)
+            max_score = max(scores)
+
+            # Match if average score >= threshold OR any field has very high match
+            if avg_score >= threshold or max_score >= 95:
+                matches.append({
+                    'brand': record[0],
+                    'alpha_name': record[1],
+                    'category': record[2],
+                    'subcategory': record[3],
+                    'timestamp': existing_timestamp,
+                    'avg_score': round(avg_score),
+                    'max_score': max_score,
+                })
+
+        # Sort by max_score descending
+        matches.sort(key=lambda x: x['max_score'], reverse=True)
+        return matches[:5]  # Return top 5 matches
+
+    except Exception as e:
+        print(f"[ERROR] Find similar expenses error: {e}")
+        return []
+
 # --- State Management ---
 class SearchState(StatesGroup):
     waiting_for_brand = State()
@@ -349,6 +424,17 @@ def get_cancel_keyboard():
 def get_confirmation_keyboard():
     buttons = [
         [InlineKeyboardButton(text="✅ Все верно", callback_data="confirm_save")],
+        [InlineKeyboardButton(text="✏️ Редактировать", callback_data="confirm_edit")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="confirm_cancel")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_duplicate_confirmation_keyboard():
+    """Keyboard when similar expenses found in worksheet 0."""
+    buttons = [
+        [InlineKeyboardButton(text="⚠️ Уже есть в базе — не добавлять", callback_data="duplicate_skip")],
+        [InlineKeyboardButton(text="➕ Всё равно добавить", callback_data="duplicate_add")],
         [InlineKeyboardButton(text="✏️ Редактировать", callback_data="confirm_edit")],
         [InlineKeyboardButton(text="❌ Отмена", callback_data="confirm_cancel")]
     ]
@@ -469,6 +555,14 @@ async def handle_photo(message: types.Message, state: FSMContext):
             is_new_mapping=not mapping
         )
 
+        # Check for similar expenses in worksheet 0
+        similar = await find_similar_expenses({
+            'brand_name': brand_name,
+            'alpha_name': alpha_name,
+            'category': category,
+            'subcategory': subcategory,
+        })
+
         confirm_msg = f"✅ Распознано:\n\n"
         confirm_msg += f"🏢 Юр. лицо: {alpha_name}\n"
         confirm_msg += f"🏷 Бренд: {brand_name}\n"
@@ -479,9 +573,20 @@ async def handle_photo(message: types.Message, state: FSMContext):
         if not mapping:
             confirm_msg += f"\n⚠️ Новая компания (будет добавлена в справочник)\n"
 
-        confirm_msg += f"\nВсе верно?"
+        if similar:
+            confirm_msg += f"\n🔍 <b>Найдено похожих расходов:</b>\n"
+            for i, exp in enumerate(similar, 1):
+                confirm_msg += f"\n{i}. {exp['brand']} | {exp['alpha_name']} | {exp['category']}"
+                if exp['subcategory']:
+                    confirm_msg += f" | {exp['subcategory']}"
+                confirm_msg += f" | {exp['timestamp']} (совпадение: {exp['max_score']}%)"
 
-        await status_msg.edit_text(confirm_msg, reply_markup=get_confirmation_keyboard())
+            confirm_msg += f"\n\nДобавить всё равно?"
+            await status_msg.edit_text(confirm_msg, reply_markup=get_duplicate_confirmation_keyboard(), parse_mode="HTML")
+        else:
+            confirm_msg += f"\nВсе верно?"
+            await status_msg.edit_text(confirm_msg, reply_markup=get_confirmation_keyboard(), parse_mode="HTML")
+
         await state.set_state(ConfirmState.waiting_confirmation)
 
     except Exception as e:
@@ -636,6 +741,25 @@ async def handle_confirm_cancel(callback: types.CallbackQuery, state: FSMContext
     await callback.message.edit_text("❌ Отменено")
     await callback.message.answer("Главное меню:", reply_markup=get_main_keyboard())
     await state.clear()
+
+
+@dp.callback_query(F.data == "duplicate_skip")
+async def handle_duplicate_skip(callback: types.CallbackQuery, state: FSMContext):
+    """Handle 'don't add' when similar expenses found."""
+    print(f"[CALLBACK] duplicate_skip triggered by user {callback.from_user.id}")
+    await callback.answer()
+    await callback.message.edit_text("⏭ Пропущено — похожий расход уже есть в базе.")
+    await callback.message.answer("Главное меню:", reply_markup=get_main_keyboard())
+    await state.clear()
+
+
+@dp.callback_query(F.data == "duplicate_add")
+async def handle_duplicate_add(callback: types.CallbackQuery, state: FSMContext):
+    """Handle 'add anyway' when similar expenses found."""
+    print(f"[CALLBACK] duplicate_add triggered by user {callback.from_user.id}")
+    # Delegate to the normal save handler
+    await handle_confirm_save(callback, state)
+
 
 @dp.callback_query(F.data == "confirm_edit")
 async def handle_confirm_edit(callback: types.CallbackQuery, state: FSMContext):
