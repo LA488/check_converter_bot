@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Check Converter — Справочник</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0f1117;
+            --bg-secondary: #1a1d27;
+            --bg-card: #232735;
+            --bg-card-hover: #2a2f3f;
+            --text-primary: #ffffff;
+            --text-secondary: #8b8fa3;
+            --accent: #6c5ce7;
+            --accent-light: #a29bfe;
+            --accent-glow: rgba(108, 92, 231, 0.3);
+            --success: #00b894;
+            --warning: #fdcb6e;
+            --danger: #ff7675;
+            --border: #2d3142;
+            --shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding-bottom: 80px;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-card) 100%);
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+
+        .header-title {
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-light) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 4px;
+        }
+
+        .header-subtitle {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        /* Tab Navigation */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 76px;
+            z-index: 99;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 12px 8px;
+            text-align: center;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+        }
+
+        .tab.active {
+            background: var(--accent);
+            color: white;
+            box-shadow: 0 4px 15px var(--accent-glow);
+        }
+
+        /* Main Content */
+        .content {
+            padding: 16px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .tab-content {
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Search Bar */
+        .search-container {
+            position: relative;
+            margin-bottom: 16px;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 14px 16px 14px 44px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            color: var(--text-primary);
+            font-size: 15px;
+            transition: all 0.3s ease;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-secondary);
+            font-size: 18px;
+        }
+
+        /* Filters */
+        .filters {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            overflow-x: auto;
+            padding-bottom: 4px;
+        }
+
+        .filter-chip {
+            padding: 8px 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            color: var(--text-secondary);
+            font-size: 13px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.3s ease;
+        }
+
+        .filter-chip.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .filter-chip:hover {
+            border-color: var(--accent);
+        }
+
+        /* Data Table */
+        .table-container {
+            background: var(--bg-card);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: var(--shadow);
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .data-table th {
+            background: var(--bg-secondary);
+            padding: 14px 12px;
+            text-align: left;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            position: sticky;
+            top: 0;
+        }
+
+        .data-table td {
+            padding: 14px 12px;
+            border-bottom: 1px solid var(--border);
+            font-size: 14px;
+            vertical-align: top;
+        }
+
+        .data-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .data-table tr:hover {
+            background: var(--bg-card-hover);
+        }
+
+        .brand-name {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .legal-name {
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        .category-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            background: var(--accent-glow);
+            color: var(--accent-light);
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .subcategory-text {
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        .date-text {
+            color: var(--text-secondary);
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        /* Pagination */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 16px;
+        }
+
+        .pagination-btn {
+            padding: 10px 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text-primary);
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .pagination-btn:hover:not(:disabled) {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        .pagination-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .pagination-info {
+            padding: 10px 16px;
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        /* Stats Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: var(--shadow);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent) 0%, var(--accent-light) 100%);
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .stat-label {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        /* Category Chart */
+        .chart-container {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: var(--shadow);
+            margin-bottom: 20px;
+        }
+
+        .chart-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+
+        .bar-chart {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .bar-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .bar-label {
+            width: 100px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            flex-shrink: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .bar-track {
+            flex: 1;
+            height: 24px;
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent) 0%, var(--accent-light) 100%);
+            border-radius: 12px;
+            transition: width 0.5s ease;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            color: white;
+            min-width: 30px;
+        }
+
+        /* Form */
+        .form-container {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: var(--shadow);
+        }
+
+        .form-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 14px 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            color: var(--text-primary);
+            font-size: 15px;
+            transition: all 0.3s ease;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        .form-input::placeholder {
+            color: var(--text-secondary);
+        }
+
+        .form-hint {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 6px;
+        }
+
+        .btn-primary {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-light) 100%);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 8px;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px var(--accent-glow);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: var(--success);
+            color: white;
+            padding: 14px 24px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 500;
+            box-shadow: 0 4px 20px rgba(0, 184, 148, 0.4);
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        .toast.error {
+            background: var(--danger);
+            box-shadow: 0 4px 20px rgba(255, 118, 117, 0.4);
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .empty-state-text {
+            font-size: 15px;
+        }
+
+        /* Loading */
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 60px;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .header-title {
+                font-size: 20px;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .data-table th:nth-child(2),
+            .data-table td:nth-child(2) {
+                display: none;
+            }
+
+            .bar-label {
+                width: 70px;
+            }
+        }
+
+        /* Telegram theme support */
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg-primary: #f5f6fa;
+                --bg-secondary: #ffffff;
+                --bg-card: #ffffff;
+                --bg-card-hover: #f0f2f5;
+                --text-primary: #1a1d27;
+                --text-secondary: #6b7280;
+                --border: #e5e7eb;
+                --shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-title">Check Converter</div>
+        <div class="header-subtitle">Справочник компаний и категорий</div>
+    </div>
+
+    <div class="tabs">
+        <button class="tab active" data-tab="directory" onclick="switchTab('directory')">📋 Справочник</button>
+        <button class="tab" data-tab="stats" onclick="switchTab('stats')">📊 Статистика</button>
+        <button class="tab" data-tab="add" onclick="switchTab('add')">➕ Добавить</button>
+    </div>
+
+    <div class="content">
+        <!-- Directory Tab -->
+        <div class="tab-content active" id="tab-directory">
+            <div class="search-container">
+                <span class="search-icon">🔍</span>
+                <input type="text" class="search-input" id="searchInput" placeholder="Поиск по бренду, юр. лицу, категории..." oninput="handleSearch()">
+            </div>
+
+            <div class="filters" id="categoryFilters"></div>
+
+            <div id="directoryContent">
+                <div class="loading"><div class="spinner"></div></div>
+            </div>
+        </div>
+
+        <!-- Stats Tab -->
+        <div class="tab-content" id="tab-stats">
+            <div id="statsContent">
+                <div class="loading"><div class="spinner"></div></div>
+            </div>
+        </div>
+
+        <!-- Add Tab -->
+        <div class="tab-content" id="tab-add">
+            <div class="form-container">
+                <div class="form-title">Добавить в справочник</div>
+                
+                <div class="form-group">
+                    <label class="form-label">Бренд *</label>
+                    <input type="text" class="form-input" id="addBrand" placeholder="Например: Korzinka">
+                    <div class="form-hint">Коммерческое название компании</div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Юридическое лицо</label>
+                    <input type="text" class="form-input" id="addLegal" placeholder="Например: KORZINKA MCHJ">
+                    <div class="form-hint">Полное юридическое название (МЧЖ, ООО и т.д.)</div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Категория *</label>
+                    <input type="text" class="form-input" id="addCategory" placeholder="Например: Супермаркет">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Подкатегория</label>
+                    <input type="text" class="form-input" id="addSubcategory" placeholder="Например: Продукты">
+                </div>
+
+                <button class="btn-primary" onclick="addMapping()">Добавить в справочник</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // State
+        let allData = [];
+        let filteredData = [];
+        let categories = [];
+        let currentPage = 1;
+        const itemsPerPage = 10;
+        let activeCategory = 'all';
+        let searchQuery = '';
+
+        // Initialize Telegram Web App
+        if (window.Telegram && window.Telegram.WebApp) {
+            Telegram.WebApp.ready();
+            Telegram.WebApp.expand();
+        }
+
+        // Load data on start
+        loadData();
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            
+            document.querySelector(`.tab[data-tab="${tabName}"]`).classList.add('active');
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+
+            if (tabName === 'stats' && document.getElementById('statsContent').children.length === 0) {
+                loadStats();
+            }
+        }
+
+        async function loadData() {
+            try {
+                const response = await fetch('/api/mapping');
+                const result = await response.json();
+                allData = result.data || [];
+                filteredData = [...allData];
+                
+                // Extract unique categories
+                categories = [...new Set(allData.map(item => item['КАТЕГОРИЯ']).filter(Boolean))].sort();
+                renderCategoryFilters();
+                renderDirectory();
+            } catch (error) {
+                console.error('Error loading data:', error);
+                document.getElementById('directoryContent').innerHTML = 
+                    '<div class="empty-state"><div class="empty-state-icon">⚠️</div><div class="empty-state-text">Ошибка загрузки данных</div></div>';
+            }
+        }
+
+        function renderCategoryFilters() {
+            const container = document.getElementById('categoryFilters');
+            const allCategories = ['all', ...categories];
+            
+            container.innerHTML = allCategories.map(cat => `
+                <button class="filter-chip ${cat === 'all' ? 'active' : ''}" 
+                        onclick="filterByCategory('${cat}')">
+                    ${cat === 'all' ? 'Все' : cat}
+                </button>
+            `).join('');
+        }
+
+        function filterByCategory(category) {
+            activeCategory = category;
+            document.querySelectorAll('.filter-chip').forEach(chip => chip.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            applyFilters();
+        }
+
+        function handleSearch() {
+            searchQuery = document.getElementById('searchInput').value.toLowerCase().trim();
+            currentPage = 1;
+            applyFilters();
+        }
+
+        function applyFilters() {
+            filteredData = allData.filter(item => {
+                // Category filter
+                if (activeCategory !== 'all' && item['КАТЕГОРИЯ'] !== activeCategory) {
+                    return false;
+                }
+
+                // Search filter
+                if (searchQuery) {
+                    const searchFields = [
+                        item['ИМЯ'] || '',
+                        item['АЛЬФА ИМЯ'] || '',
+                        item['КАТЕГОРИЯ'] || '',
+                        item['ПОДКАТЕГОРИЯ'] || ''
+                    ];
+                    const match = searchFields.some(field => 
+                        field.toLowerCase().includes(searchQuery)
+                    );
+                    if (!match) return false;
+                }
+
+                return true;
+            });
+
+            renderDirectory();
+        }
+
+        function renderDirectory() {
+            const container = document.getElementById('directoryContent');
+            
+            if (filteredData.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🔍</div>
+                        <div class="empty-state-text">Ничего не найдено</div>
+                    </div>
+                `;
+                return;
+            }
+
+            // Pagination
+            const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            const pageData = filteredData.slice(startIndex, startIndex + itemsPerPage);
+
+            let html = `
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Бренд</th>
+                                <th>Юр. лицо</th>
+                                <th>Категория</th>
+                                <th>Подкатегория</th>
+                                <th>Дата</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+
+            pageData.forEach(item => {
+                html += `
+                    <tr>
+                        <td><span class="brand-name">${escapeHtml(item['ИМЯ'] || '')}</span></td>
+                        <td><span class="legal-name">${escapeHtml(item['АЛЬФА ИМЯ'] || '')}</span></td>
+                        <td><span class="category-badge">${escapeHtml(item['КАТЕГОРИЯ'] || '')}</span></td>
+                        <td><span class="subcategory-text">${escapeHtml(item['ПОДКАТЕГОРИЯ'] || '-')}</span></td>
+                        <td><span class="date-text">${escapeHtml(item['ДАТА ДОБАВЛЕНИЯ'] || '')}</span></td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table></div>';
+
+            // Pagination controls
+            if (totalPages > 1) {
+                html += `
+                    <div class="pagination">
+                        <button class="pagination-btn" ${currentPage === 1 ? 'disabled' : ''} 
+                                onclick="changePage(${currentPage - 1})">← Назад</button>
+                        <span class="pagination-info">${currentPage} / ${totalPages}</span>
+                        <button class="pagination-btn" ${currentPage === totalPages ? 'disabled' : ''} 
+                                onclick="changePage(${currentPage + 1})">Вперёд →</button>
+                    </div>
+                `;
+            }
+
+            container.innerHTML = html;
+        }
+
+        function changePage(page) {
+            currentPage = page;
+            renderDirectory();
+        }
+
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/mapping/stats');
+                const stats = await response.json();
+                
+                const container = document.getElementById('statsContent');
+                
+                // Top categories for chart
+                const topCats = stats.top_categories || [];
+                const maxCount = topCats.length > 0 ? topCats[0][1] : 1;
+
+                let html = `
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value">${stats.total_brands || 0}</div>
+                            <div class="stat-label">Брендов в базе</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">${Object.keys(stats.categories || {}).length}</div>
+                            <div class="stat-label">Категорий</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">${Object.keys(stats.subcategories || {}).length}</div>
+                            <div class="stat-label">Подкатегорий</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">${(stats.total_brands / Object.keys(stats.categories || {}).length || 0).toFixed(1)}</div>
+                            <div class="stat-label">В среднем на категорию</div>
+                        </div>
+                    </div>
+
+                    <div class="chart-container">
+                        <div class="chart-title">📊 Топ категорий по количеству брендов</div>
+                        <div class="bar-chart">
+                `;
+
+                topCats.forEach(([cat, count]) => {
+                    const percent = (count / maxCount) * 100;
+                    html += `
+                        <div class="bar-item">
+                            <div class="bar-label">${escapeHtml(cat)}</div>
+                            <div class="bar-track">
+                                <div class="bar-fill" style="width: ${percent}%">${count}</div>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += '</div></div>';
+
+                // All categories list
+                html += `
+                    <div class="chart-container">
+                        <div class="chart-title">📂 Все категории</div>
+                        <div class="bar-chart">
+                `;
+
+                const allCats = Object.entries(stats.categories || {}).sort((a, b) => b[1] - a[1]);
+                allCats.forEach(([cat, count]) => {
+                    const percent = (count / maxCount) * 100;
+                    html += `
+                        <div class="bar-item">
+                            <div class="bar-label">${escapeHtml(cat)}</div>
+                            <div class="bar-track">
+                                <div class="bar-fill" style="width: ${percent}%">${count}</div>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += '</div></div>';
+
+                container.innerHTML = html;
+            } catch (error) {
+                console.error('Error loading stats:', error);
+                document.getElementById('statsContent').innerHTML = 
+                    '<div class="empty-state"><div class="empty-state-icon">⚠️</div><div class="empty-state-text">Ошибка загрузки статистики</div></div>';
+            }
+        }
+
+        async function addMapping() {
+            const brand = document.getElementById('addBrand').value.trim();
+            const legal = document.getElementById('addLegal').value.trim();
+            const category = document.getElementById('addCategory').value.trim();
+            const subcategory = document.getElementById('addSubcategory').value.trim();
+
+            if (!brand || !category) {
+                showToast('Заполните обязательные поля (бренд, категория)', true);
+                return;
+            }
+
+            const btn = document.querySelector('.btn-primary');
+            btn.disabled = true;
+            btn.textContent = 'Добавляем...';
+
+            try {
+                const response = await fetch('/api/mapping', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ brand, legal, category, subcategory })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    showToast('✅ Добавлено в справочник');
+                    // Clear form
+                    document.getElementById('addBrand').value = '';
+                    document.getElementById('addLegal').value = '';
+                    document.getElementById('addCategory').value = '';
+                    document.getElementById('addSubcategory').value = '';
+                    
+                    // Reload data
+                    await loadData();
+                } else {
+                    showToast(result.error || 'Ошибка при добавлении', true);
+                }
+            } catch (error) {
+                console.error('Error adding mapping:', error);
+                showToast('Ошибка сети', true);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Добавить в справочник';
+            }
+        }
+
+        function showToast(message, isError = false) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'toast show' + (isError ? ' error' : '');
+            
+            setTimeout(() => {
+                toast.className = 'toast';
+            }, 3000);
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

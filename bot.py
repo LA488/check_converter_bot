@@ -1006,6 +1006,107 @@ def debug_info():
         "last_save_tracker_size": len(last_save_tracker),
     }, 200
 
+
+@app.route("/api/mapping")
+def api_mapping():
+    """Returns all mapping data from Sheet1."""
+    client = get_sheets_client()
+    if not client:
+        return {"error": "Google Sheets client failed"}, 500
+    try:
+        sh = client.open_by_url(GOOGLE_SHEET_URL)
+        worksheet = sh.worksheet("Sheet1")
+        raw_data = worksheet.get_all_values()
+        if len(raw_data) <= 1:
+            return {"data": [], "count": 0}
+        headers = raw_data[0]
+        data = [dict(zip(headers, row)) for row in raw_data[1:]]
+        return {"data": data, "count": len(data)}
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
+@app.route("/api/mapping/stats")
+def api_mapping_stats():
+    """Returns category statistics from Sheet1."""
+    client = get_sheets_client()
+    if not client:
+        return {"error": "Google Sheets client failed"}, 500
+    try:
+        sh = client.open_by_url(GOOGLE_SHEET_URL)
+        worksheet = sh.worksheet("Sheet1")
+        raw_data = worksheet.get_all_values()
+        if len(raw_data) <= 1:
+            return {"categories": {}, "subcategories": {}, "total": 0}
+        
+        headers = raw_data[0]
+        cat_idx = headers.index("КАТЕГОРИЯ") if "КАТЕГОРИЯ" in headers else -1
+        subcat_idx = headers.index("ПОДКАТЕГОРИЯ") if "ПОДКАТЕГОРИЯ" in headers else -1
+        
+        categories = {}
+        subcategories = {}
+        for row in raw_data[1:]:
+            if cat_idx >= 0 and row[cat_idx]:
+                cat = row[cat_idx].strip()
+                categories[cat] = categories.get(cat, 0) + 1
+            if subcat_idx >= 0 and row[subcat_idx]:
+                subcat = row[subcat_idx].strip()
+                subcategories[subcat] = subcategories.get(subcat, 0) + 1
+        
+        # Top 5 categories
+        top_categories = sorted(categories.items(), key=lambda x: x[1], reverse=True)[:5]
+        
+        return {
+            "categories": categories,
+            "subcategories": subcategories,
+            "top_categories": top_categories,
+            "total_brands": len(raw_data) - 1
+        }
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
+@app.route("/api/mapping", methods=["POST"])
+def api_mapping_add():
+    """Add new mapping entry to Sheet1."""
+    client = get_sheets_client()
+    if not client:
+        return {"error": "Google Sheets client failed"}, 500
+    try:
+        data = request.json
+        brand = (data.get("brand") or "").strip()
+        legal = (data.get("legal") or "").strip()
+        category = (data.get("category") or "").strip()
+        subcategory = (data.get("subcategory") or "").strip()
+        
+        if not brand or not category:
+            return {"error": "Brand and category are required"}, 400
+        
+        sh = client.open_by_url(GOOGLE_SHEET_URL)
+        worksheet = sh.worksheet("Sheet1")
+        
+        row = [brand, legal, category, subcategory, get_uz_time()]
+        worksheet.append_row(row)
+        
+        # Reload mapping service cache
+        mapping_service._load_data()
+        
+        return {"success": True, "message": "Mapping added"}
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
+@app.route("/app")
+def mini_app():
+    """Serves the Mini App HTML."""
+    # Read the HTML template
+    html_path = os.path.join(os.path.dirname(__file__), "mini_app.html")
+    if os.path.exists(html_path):
+        with open(html_path, "r", encoding="utf-8") as f:
+            return f.read(), 200, {"Content-Type": "text/html; charset=utf-8"}
+    return "Mini App not found. Please deploy with mini_app.html", 404
+
+
 @app.route("/<path:webhook_token>", methods=["POST"])
 def telegram_webhook(webhook_token):
     """Handle incoming updates from Telegram via Webhook."""
@@ -1052,6 +1153,20 @@ async def on_startup():
                 types.BotCommand(command="cancel", description="❌ Отменить поиск")
             ]
             await bot.set_my_commands(commands)
+
+            # Set menu button to open Mini App
+            mini_app_url = f"https://{os.getenv('RENDER_EXTERNAL_URL', '').replace('https://', '')}/app" if os.getenv('RENDER_EXTERNAL_URL') else None
+            if mini_app_url:
+                try:
+                    from aiogram.types import MenuButtonWebApp
+                    menu_button = MenuButtonWebApp(
+                        text="📱 Открыть приложение",
+                        web_app=types.WebAppInfo(url=mini_app_url)
+                    )
+                    await bot.set_chat_menu_button(menu_button=menu_button)
+                    print(f"[*] Menu button set to open Mini App: {mini_app_url}")
+                except Exception as mb_err:
+                    print(f"[!] Failed to set menu button: {mb_err}")
 
             print(f"[*] Setting webhook to: {WEBHOOK_URL}")
             await asyncio.sleep(2)
