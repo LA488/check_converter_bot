@@ -1,6 +1,7 @@
 import asyncio
 import os
 import json
+import re
 import traceback
 
 from io import BytesIO
@@ -491,8 +492,8 @@ async def cmd_cancel_command(message: types.Message, state: FSMContext):
     await message.answer("❌ Действие отменено", reply_markup=get_main_keyboard())
 
 @dp.message(F.text == "❌ Отмена")
-@dp.message(F.text.regexp(r"^(?i)отмена$"))
-@dp.message(F.text.regexp(r"^(?i)cancel$"))
+@dp.message(F.text.regexp(r"^отмена$", flags=re.IGNORECASE))
+@dp.message(F.text.regexp(r"^cancel$", flags=re.IGNORECASE))
 async def cmd_cancel(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("Отменено. Выберите режим поиска:", reply_markup=get_main_keyboard())
